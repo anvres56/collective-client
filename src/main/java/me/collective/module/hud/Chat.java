@@ -1,0 +1,19 @@
+package me.collective.module.hud;
+
+import me.collective.setting.BooleanSetting;
+
+public class Chat extends HudModule {
+    public final BooleanSetting customFont = add(new BooleanSetting("CustomFont", true));
+    public final BooleanSetting clearBackground = add(new BooleanSetting("ClearBackground", false));
+
+    public Chat() {
+        super("Chat", "Customizes chat appearance.", 4, 250);
+        this.width = 0;
+        this.height = 0;
+    }
+
+    @Override
+    public void render(net.minecraft.client.gui.DrawContext context, float delta) {
+        // Chat module settings applied to ChatHud
+    }
+}

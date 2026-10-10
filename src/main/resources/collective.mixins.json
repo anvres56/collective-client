@@ -1,0 +1,33 @@
+{
+  "required": true,
+  "package": "me.collective.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MixinKeyboard",
+    "MixinMouse",
+    "MixinChatScreen",
+    "MixinChatInputSuggestor",
+    "MixinClientConnection",
+    "MixinClientPlayerEntity",
+    "MixinEntity",
+    "EntityVelocityUpdateS2CPacketAccessor",
+    "ExplosionS2CPacketAccessor",
+    "MixinPlayerInteractEntityC2SPacket",
+    "MixinKeyBinding",
+    "MixinSoundSystem",
+    "MixinElytraFeatureRenderer",
+    "MixinLivingEntityRenderer",
+    "MixinPlayerEntity",
+    "MixinPlayerEntityRenderer",
+    "LivingEntityMixin",
+    "MixinCamera",
+    "CobwebBlockMixin",
+    "MixinClientPlayerInteractionManager",
+    "MixinGameRenderer",
+    "MixinHeldItemRenderer",
+    "MixinInGameOverlayRenderer"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

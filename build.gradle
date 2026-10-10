@@ -1,0 +1,48 @@
+plugins {
+    id 'fabric-loom' version '1.17.21'
+    id 'java'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base { archivesName = project.archives_base_name }
+
+loom {
+    accessWidenerPath = file("src/main/resources/collective.accesswidener")
+}
+
+repositories {
+    maven { url = 'https://maven.fabricmc.net/' }
+    maven { url = 'https://maven.terraformersmc.com/' }
+    maven { url = 'https://api.modrinth.com/maven' }
+    maven {
+        name = 'meteor-maven-snapshots'
+        url = 'https://maven.meteordev.org/snapshots'
+    }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+    modImplementation "meteordevelopment:baritone:1.21.11-SNAPSHOT"
+    implementation files("libs/nether-pathfinder-1.4.1.jar")
+
+    include(implementation(annotationProcessor("io.github.llamalad7:mixinextras-fabric:0.4.1")))
+}
+
+java {
+    withSourcesJar()
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = 'UTF-8'
+    it.options.release = 21
+    it.options.compilerArgs += ['-nowarn','-Xlint:none','-Xmaxerrs','100000','-Xmaxwarns','0']
+}

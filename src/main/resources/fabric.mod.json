@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "collective",
+  "version": "1.0.0",
+  "name": "Collective Client",
+  "description": "Collective Client for Minecraft 1.21.11",
+  "authors": [
+    "Collective Team",
+    "GzSakura"
+  ],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "me.collective.CollectiveClient"
+    ]
+  },
+  "mixins": [
+    "collective.mixins.json"
+  ],
+  "depends": {
+    "minecraft": "1.21.11",
+    "fabric-api": "*",
+    "fabricloader": ">=0.16"
+  },
+  "suggests": {
+    "baritone": "*"
+  },
+  "accessWidener": "collective.accesswidener"
+}
