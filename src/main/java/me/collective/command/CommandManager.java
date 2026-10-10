@@ -33,6 +33,8 @@ public class CommandManager {
         register(new SorterCommand());
         register(new MoverCommand());
         register(new ElytraFlyCommand());
+        register(new AddonCommand());
+        register(new ScriptCommand());
     }
 
     public void register(Command command) {

@@ -273,7 +273,102 @@ register(new MyCustomModule());
 
 ---
 
-## 9. Чек-лист для AI-агентов перед сдачей кода
+## 9. Система аддонов (`me.collective.addon`)
+
+Клиент поддерживает расширение функционала через внешние аддоны двух типов:
+1. **Fabric Entrypoint**: объявление `"collective"` в `fabric.mod.json`:
+   ```json
+   "entrypoints": {
+     "collective": [
+       "com.example.addon.MyAddon"
+     ]
+   }
+   ```
+2. **Динамическая подгрузка `.jar`**: помещение готового jar-файла аддона в папку `.minecraft/collective/addons/`. Подгружается на лету через `AddonManager.getInstance().loadJarAddon(file)`.
+
+### Создание аддона:
+```java
+package com.example.addon;
+
+import me.collective.addon.AddonInfo;
+import me.collective.addon.CollectiveAddon;
+
+@AddonInfo(
+    name = "ExampleAddon",
+    version = "1.0.0",
+    author = "Author",
+    description = "Пример аддона для Collective Client"
+)
+public class ExampleAddon extends CollectiveAddon {
+    @Override
+    public void onInitialize() {
+        // Регистрация модулей аддона
+        registerModule(new CustomAddonModule());
+        // Регистрация команд аддона
+        registerCommand(new CustomAddonCommand());
+    }
+
+    @Override
+    public void onShutdown() {
+        // Очистка при перезагрузке (.addon reload)
+    }
+}
+```
+Команда управления: `.addon <list | reload | folder>`
+
+---
+
+## 10. Система скриптов на Kotlin / Java (`me.collective.scripting`)
+
+Позволяет создавать кастомные модули и макросы без пересборки клиента. Скрипты располагаются в `.minecraft/collective/scripts/` (форматы `.kts`, `.kt`, `.js`, `.groovy`).
+
+### Пример скрипта на Kotlin (`AutoJump.kts`):
+```kotlin
+// Быстрое создание модуля через встроенный DSL
+val myModule = module("AutoJump", me.collective.category.Category.MOVEMENT, "Прыгает при беге")
+
+myModule.onTick { mod ->
+    if (mc.player != null && mc.player!!.isOnGround && mc.options.forwardKey.isPressed) {
+        mc.player!!.jump()
+    }
+}
+
+print("Скрипт AutoJump успешно запущен!")
+```
+
+- В контекст скрипта автоматически проброшены: `ctx`, `mc`, `client`, `print`, `log`, `module(...)`.
+- Команда управления: `.scripts <list | reload | folder>` (мгновенная перезагрузка без перезапуска игры).
+
+---
+
+## 11. Model Context Protocol (MCP) для AI-агентов (`me.collective.mcp`)
+
+Встроенный сервер Model Context Protocol (`http://127.0.0.1:21114/mcp`), активируемый модулем `McpModule` (категория `Category.CLIENT`). Позволяет AI-агентам (Claude Desktop, Cursor, Antigravity, внешним Python-скриптам) контролировать клиент в реальном времени.
+
+### Реализованные инструменты (MCP Tools):
+| Инструмент | Параметры | Описание |
+|---|---|---|
+| `get_player_state` | — | Возвращает координаты, здоровье, голод, сервер, измерение и полный инвентарь игрока |
+| `list_modules` | — | Список всех зарегистрированных модулей с их статусом (включен/выключен) и категориями |
+| `toggle_module` | `name: string`, `enabled?: boolean` | Включение/выключение любого модуля по имени |
+| `execute_command` | `command: string` | Выполнение любой внутренней команды клиента (например, `.elytrafly 1000 2000`) |
+| `chat_message` | `message: string` | Отправка сообщения или серверной команды в чат игры |
+| `get_world_entities` | `radius?: number` | Сканирование окружающих игроков, мобов и предметов в заданном радиусе с дистанцией |
+
+Пример подключения AI-агента в `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "collective": {
+      "url": "http://127.0.0.1:21114/mcp"
+    }
+  }
+}
+```
+
+---
+
+## 12. Чек-лист для AI-агентов перед сдачей кода
 
 Перед завершением любой задачи обязательно проверьте:
 - [ ] Все новые Java-классы компилируются без предупреждений: `./gradlew compileJava` возвращает `BUILD SUCCESSFUL`.

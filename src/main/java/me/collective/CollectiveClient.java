@@ -80,6 +80,15 @@ public class CollectiveClient implements ClientModInitializer {
         } catch (Throwable ignored) {
         }
 
+        // Initialize Addon & Scripting Systems
+        try {
+            me.collective.addon.AddonManager.getInstance().init();
+            me.collective.scripting.ScriptManager.getInstance().init();
+        } catch (Throwable t) {
+            System.err.println("[Collective] Error initializing Addons/Scripts: " + t.getMessage());
+            t.printStackTrace();
+        }
+
         System.out.println("[" + MOD_NAME + "] Initialized successfully!");
     }
 

@@ -30,6 +30,7 @@ public class ModuleManager {
         register(new Discord());
         register(new Baritone());
         register(new ChatFonts());
+        register(new McpModule());
 
         // Combat Modules
         register(new GrimAnchorAura());
@@ -130,7 +131,7 @@ public class ModuleManager {
         register(new Bps());
     }
 
-    private void register(Module module) {
+    public void register(Module module) {
         modules.add(module);
         if (module instanceof HudModule) {
             hudModules.add((HudModule) module);
