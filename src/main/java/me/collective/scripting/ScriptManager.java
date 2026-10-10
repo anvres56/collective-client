@@ -86,6 +86,14 @@ public class ScriptManager {
         bindings.put("client", ctx.mc);
         bindings.put("print", (java.util.function.Consumer<Object>) ctx::print);
         bindings.put("log", (java.util.function.Consumer<Object>) ctx::log);
+        bindings.put("modules", me.collective.module.ModuleManager.INSTANCE);
+        bindings.put("commands", me.collective.command.CommandManager.INSTANCE);
+        bindings.put("events", me.collective.event.EventBus.INSTANCE);
+        bindings.put("rotations", me.collective.util.RotationUtils.getInstance());
+        bindings.put("baritone", me.collective.util.BaritoneBridge.class);
+        bindings.put("inv", me.collective.util.InventoryUtil.class);
+        bindings.put("fonts", me.collective.font.FontManager.INSTANCE);
+        bindings.put("blur", me.collective.render.BlurEngine.INSTANCE);
 
         try {
             String code = Files.readString(file.toPath());
