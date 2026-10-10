@@ -247,6 +247,56 @@ public class McpServer {
             tChat.add("inputSchema", tChatSchema);
             tools.add(tChat);
 
+            // 6. baritone_path
+            JsonObject tBari = new JsonObject();
+            tBari.addProperty("name", "baritone_path");
+            tBari.addProperty("description", "Commands Baritone AI to pathfind to specific X Y Z coordinates or cancel current path.");
+            JsonObject tBariSchema = new JsonObject();
+            tBariSchema.addProperty("type", "object");
+            JsonObject bariProps = new JsonObject();
+            JsonObject pBx = new JsonObject();
+            pBx.addProperty("type", "integer");
+            pBx.addProperty("description", "Target X coordinate");
+            bariProps.add("x", pBx);
+            JsonObject pBy = new JsonObject();
+            pBy.addProperty("type", "integer");
+            pBy.addProperty("description", "Target Y coordinate (optional, default 64)");
+            bariProps.add("y", pBy);
+            JsonObject pBz = new JsonObject();
+            pBz.addProperty("type", "integer");
+            pBz.addProperty("description", "Target Z coordinate");
+            bariProps.add("z", pBz);
+            JsonObject pBstop = new JsonObject();
+            pBstop.addProperty("type", "boolean");
+            pBstop.addProperty("description", "Set to true to stop/cancel Baritone pathfinding");
+            bariProps.add("stop", pBstop);
+            tBariSchema.add("properties", bariProps);
+            tBari.add("inputSchema", tBariSchema);
+            tools.add(tBari);
+
+            // 7. set_rotation
+            JsonObject tRot = new JsonObject();
+            tRot.addProperty("name", "set_rotation");
+            tRot.addProperty("description", "Smoothly or silently sets player yaw and pitch angles.");
+            JsonObject tRotSchema = new JsonObject();
+            tRotSchema.addProperty("type", "object");
+            JsonObject rotProps = new JsonObject();
+            JsonObject pYaw = new JsonObject();
+            pYaw.addProperty("type", "number");
+            pYaw.addProperty("description", "Target yaw angle");
+            rotProps.add("yaw", pYaw);
+            JsonObject pPitch = new JsonObject();
+            pPitch.addProperty("type", "number");
+            pPitch.addProperty("description", "Target pitch angle (-90 up to 90 down)");
+            rotProps.add("pitch", pPitch);
+            tRotSchema.add("properties", rotProps);
+            JsonArray rotReq = new JsonArray();
+            rotReq.add("yaw");
+            rotReq.add("pitch");
+            tRotSchema.add("required", rotReq);
+            tRot.add("inputSchema", tRotSchema);
+            tools.add(tRot);
+
             // 6. get_world_entities
             JsonObject tEnt = new JsonObject();
             tEnt.addProperty("name", "get_world_entities");
@@ -344,6 +394,31 @@ public class McpServer {
                         }
                     });
                     content.addProperty("text", "Sent chat message: " + msg);
+                }
+                case "baritone_path" -> {
+                    boolean stop = args.has("stop") && args.get("stop").getAsBoolean();
+                    if (stop) {
+                        mc.execute(() -> me.collective.util.BaritoneBridge.clearGoal());
+                        content.addProperty("text", "Baritone pathfinding cancelled.");
+                    } else {
+                        int x = args.has("x") ? args.get("x").getAsInt() : 0;
+                        int y = args.has("y") ? args.get("y").getAsInt() : (mc.player != null ? mc.player.getBlockY() : 64);
+                        int z = args.has("z") ? args.get("z").getAsInt() : 0;
+                        mc.execute(() -> me.collective.util.BaritoneBridge.setGoal(new net.minecraft.util.math.BlockPos(x, y, z)));
+                        content.addProperty("text", "Baritone pathfinding to " + x + ", " + y + ", " + z);
+                    }
+                }
+                case "set_rotation" -> {
+                    float yaw = args.has("yaw") ? args.get("yaw").getAsFloat() : 0f;
+                    float pitch = args.has("pitch") ? args.get("pitch").getAsFloat() : 0f;
+                    mc.execute(() -> {
+                        me.collective.util.RotationUtils.getInstance().setRotationSilent(yaw, pitch);
+                        if (mc.player != null) {
+                            mc.player.setYaw(yaw);
+                            mc.player.setPitch(pitch);
+                        }
+                    });
+                    content.addProperty("text", "Rotation set to yaw=" + yaw + ", pitch=" + pitch);
                 }
                 case "get_world_entities" -> {
                     double r = args.has("radius") ? args.get("radius").getAsDouble() : 32.0;
