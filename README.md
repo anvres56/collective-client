@@ -97,3 +97,20 @@ build/libs/collective-1.21.11-1.0.0.jar
 ```
 
 Для установки просто поместите `.jar` файл в папку `.minecraft/mods` с установленным Fabric Loader для версии 1.21.11.
+
+---
+
+## 🧩 Экосистема: Аддоны, Скрипты и AI MCP
+
+Collective Client оснащен трехуровневой системой расширения:
+
+1. **Система Аддонов (Addons System)**:
+   - Полная поддержка внешних модулей и команд как через Fabric Mod Entrypoints (`"collective"`), так и через динамическую загрузку JAR из папки `.minecraft/collective/addons/`.
+   - Репозиторий шаблона и документации: [collective-addon-template](https://github.com/anvres56/collective-addon-template)
+2. **Скриптовый движок Kotlin (`.kts`)**:
+   - Написание и горячая перезагрузка (`Hot-Reload`) скриптов на лету без компиляции JAR.
+   - Репозиторий документации и примеров скриптов: [collective-scripts-template](https://github.com/anvres56/collective-scripts-template)
+3. **AI MCP Server (Model Context Protocol)**:
+   - Встроенный JSON-RPC MCP сервер (порт `8765`) для управления клиентом с помощью нейросетей и агентов.
+   - Подробная инструкция для агентов доступна в [AGENTS.md](AGENTS.md).
+
