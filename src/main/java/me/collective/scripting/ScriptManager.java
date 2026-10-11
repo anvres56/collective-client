@@ -131,11 +131,45 @@ public class ScriptManager {
         return null;
     }
 
-    public void unloadScript(String name) {
-        ScriptContext ctx = activeContexts.remove(name);
+    public boolean unloadScript(String name) {
+        String cleanName = name;
+        if (!activeContexts.containsKey(cleanName)) {
+            for (String key : activeContexts.keySet()) {
+                if (key.equalsIgnoreCase(cleanName) || key.startsWith(cleanName + ".")) {
+                    cleanName = key;
+                    break;
+                }
+            }
+        }
+
+        ScriptContext ctx = activeContexts.remove(cleanName);
         if (ctx != null) {
             ctx.unregisterAll();
+            System.out.println("[Collective-Scripting] Unloaded script: " + cleanName);
+            return true;
         }
+        return false;
+    }
+
+    public boolean loadScriptByName(String name) {
+        File folder = scriptsFolder.toFile();
+        if (!folder.exists() || !folder.isDirectory()) return false;
+
+        File target = new File(folder, name);
+        if (target.exists() && target.isFile()) {
+            return loadScript(target);
+        }
+
+        // Try standard extensions if omitted
+        String[] extensions = {".kts", ".kt", ".js", ".groovy"};
+        for (String ext : extensions) {
+            File f = new File(folder, name + ext);
+            if (f.exists() && f.isFile()) {
+                return loadScript(f);
+            }
+        }
+
+        return false;
     }
 
     public void reload() {

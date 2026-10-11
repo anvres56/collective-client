@@ -48,6 +48,10 @@ public class ScriptModule extends Module {
         return add(new StringSetting(name, defaultValue));
     }
 
+    public ModeSetting modeSetting(String name, String defaultMode, String... modes) {
+        return add(new ModeSetting(name, defaultMode, modes));
+    }
+
     public <T extends Enum<T>> EnumSetting<T> enumSetting(String name, T defaultValue) {
         return add(new EnumSetting<>(name, defaultValue));
     }
