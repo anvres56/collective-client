@@ -216,11 +216,29 @@ public abstract class MixinChatInputSuggestor {
                     suggestMatching(Arrays.asList(".", ",", "!", "@", "#", "$", "-", "/"), currentArg, builder);
                 }
             }
-            default -> {
-                // Если у команды первый аргумент может быть модулем — подсказываем модули
+            case "scripts", "script", "скрипты" -> {
                 if (argIndex == 1) {
-                    suggestModules(currentArg, builder);
+                    suggestMatching(Arrays.asList("list", "load", "unload", "reload", "folder"), currentArg, builder);
+                } else if (argIndex == 2 && ("load".equalsIgnoreCase(parts[1]) || "unload".equalsIgnoreCase(parts[1]))) {
+                    java.io.File scriptsDir = me.collective.scripting.ScriptManager.getInstance().getScriptsFolder().toFile();
+                    if (scriptsDir.exists() && scriptsDir.isDirectory()) {
+                        java.io.File[] files = scriptsDir.listFiles((dir, n) ->
+                            n.endsWith(".kts") || n.endsWith(".kt") || n.endsWith(".js") || n.endsWith(".groovy"));
+                        if (files != null) {
+                            List<String> names = new ArrayList<>();
+                            for (java.io.File f : files) names.add(f.getName());
+                            suggestMatching(names, currentArg, builder);
+                        }
+                    }
                 }
+            }
+            case "addon" -> {
+                if (argIndex == 1) {
+                    suggestMatching(Arrays.asList("list", "reload", "folder"), currentArg, builder);
+                }
+            }
+            default -> {
+                // Для других команд ничего не подсказываем автоматически
             }
         }
     }
