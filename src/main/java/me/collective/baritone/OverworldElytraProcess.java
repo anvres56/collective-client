@@ -72,6 +72,9 @@ public class OverworldElytraProcess implements AbstractGameEventListener, IBarit
     private float divePitch = 40.0f;
     private float climbPitch = -35.0f;
     private double minSpeedThreshold = 18.0;
+    // Эконом-режим: ниже пороги помощи фейерверками и длиннее паузы между ними.
+    // Волна Pitch-40 сама восстанавливает скорость в пикировании, ракеты — только страховка.
+    private boolean ecoMode = true;
 
     // Таймеры и логика полёта
     private boolean isPitchDiving = true;
@@ -179,6 +182,7 @@ public class OverworldElytraProcess implements AbstractGameEventListener, IBarit
                 this.cruiseUpperY = pitch40.pitch40UpperBounds.getValue();
                 this.cruiseTargetY = (cruiseLowerY + cruiseUpperY) / 2.0;
                 this.minSpeedThreshold = pitch40.minSpeed.getValue();
+                this.ecoMode = pitch40.ecoMode.getValue();
             }
         } catch (Throwable ignored) {
         }
@@ -285,9 +289,9 @@ public class OverworldElytraProcess implements AbstractGameEventListener, IBarit
         lookTowards(new Vec3d(destination.getX() + 0.5, this.cruiseTargetY, destination.getZ() + 0.5), -55.0f);
 
         double speed = getSpeedBPS();
-        if (speed < 12.0 && this.fireworkCooldown <= 0) {
+        if (speed < (ecoMode ? 9.0 : 12.0) && this.fireworkCooldown <= 0) {
             if (useFirework()) {
-                this.fireworkCooldown = 25;
+                this.fireworkCooldown = ecoMode ? 50 : 25;
             }
         }
     }
@@ -311,10 +315,11 @@ public class OverworldElytraProcess implements AbstractGameEventListener, IBarit
             }
         } else {
             if (currentY >= this.cruiseUpperY || speed < this.minSpeedThreshold) {
-                // Если импульса не хватило подняться — аккуратно подталкиваем 1 фейерверком
-                if (speed < 10.0 && this.fireworkCooldown <= 0) {
+                // Если импульса не хватило подняться — аккуратно подталкиваем 1 фейерверком.
+                // В эконом-режиме ждём дольше и терпим меньшую скорость: волна сама доберёт в пике.
+                if (speed < (ecoMode ? 8.0 : 10.0) && this.fireworkCooldown <= 0) {
                     if (useFirework()) {
-                        this.fireworkCooldown = 30;
+                        this.fireworkCooldown = ecoMode ? 60 : 30;
                     }
                 }
                 this.isPitchDiving = true;
@@ -325,9 +330,9 @@ public class OverworldElytraProcess implements AbstractGameEventListener, IBarit
         lookTowards(new Vec3d(destination.getX() + 0.5, this.destination.getY(), destination.getZ() + 0.5), desiredPitch);
 
         // Экстренный фейерверк при критическом падении скорости
-        if (speed < 6.0 && this.fireworkCooldown <= 0) {
+        if (speed < (ecoMode ? 5.0 : 6.0) && this.fireworkCooldown <= 0) {
             if (useFirework()) {
-                this.fireworkCooldown = 25;
+                this.fireworkCooldown = ecoMode ? 50 : 25;
             }
         }
 

@@ -67,7 +67,10 @@ src/main/java/me/collective/
 ├── command/                            # Командный движок клиента
 │   ├── Command.java                    # Базовый абстрактный класс команды
 │   ├── CommandManager.java             # Регистрация и парсинг команд (префикс '.')
-│   └── commands/                       # Реализации (.bind, .toggle, .elytrafly, .сорт, .перенос и т.д.)
+│   └── commands/                       # Реализации (.bind, .toggle, .elytrafly, .config, .сорт, .перенос и т.д.)
+│
+├── config/                             # Система конфигов (ConfigManager, ConfigCommand)
+│   └── ConfigManager.java              # Автосейв default.json + именованные конфиги в collective/configs/
 │
 ├── event/                              # Собственная шина событий
 │   ├── EventBus.java                   # Диспетчер подписок/отписок и рассылки
@@ -108,7 +111,7 @@ src/main/java/me/collective/
 │   ├── player/                         # Автоматизация: StashMover, StashSorter, AutoTool, MiddleClickExtra
 │   ├── exploit/                        # Эксплойты: NewChunks, ShulkerDupe, WorldEventCoords
 │   ├── render/                         # Визуал: TargetESP, HoleESP, NameTags, Fullbright, StorageESP
-│   ├── hud/                            # Элементы интерфейса: Watermark, ModuleList, Armor, Position
+│   ├── hud/                            # Элементы интерфейса: Watermark, ModuleList, Armor, Position, ImageHUD
 │   └── misc/                           # Разное: ServerSpoof, AutoReconnect, Notifier, Spam, AutoFish
 │
 ├── setting/                            # Система настроек модулей

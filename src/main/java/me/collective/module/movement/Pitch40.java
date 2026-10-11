@@ -23,6 +23,7 @@ public class Pitch40 extends Module {
     public final NumberSetting pitch40LowerBounds = add(new NumberSetting("LowerBounds", 360.0, -128.0, 500.0, 1.0));
     public final NumberSetting pitch40UpperBounds = add(new NumberSetting("UpperBounds", 420.0, -128.0, 500.0, 1.0));
     public final BooleanSetting autoFirework = add(new BooleanSetting("AutoFirework", true));
+    public final BooleanSetting ecoMode = add(new BooleanSetting("Эконом", true));
     public final NumberSetting minSpeed = add(new NumberSetting("MinSpeed", 5.0, 0.0, 50.0, 0.5, (v) -> autoFirework.getValue()));
     public final NumberSetting fireworkCooldownTicks = add(new NumberSetting("CooldownTicks", 100, 10, 100, 5, (v) -> autoFirework.getValue()));
     public final BooleanSetting autoRecast = add(new BooleanSetting("AutoRecast", true));

@@ -4,7 +4,7 @@ import me.collective.category.Category;
 import me.collective.event.EventHandler;
 import me.collective.event.events.TickEvent;
 import me.collective.module.Module;
-import me.collective.module.player.BepMine;
+import me.collective.module.player.SpeedMine;
 import me.collective.setting.NumberSetting;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
@@ -70,9 +70,9 @@ public class AutoCity extends Module {
                 cityPos = pos;
                 mc.player.sendMessage(Text.literal("§7[§cAutoCity§7] §aMining city block at: §e" + pos.toShortString()), false);
 
-                if (BepMine.INSTANCE != null) {
-                    if (!BepMine.INSTANCE.isToggled()) BepMine.INSTANCE.setToggled(true);
-                    BepMine.INSTANCE.mineBlock(cityPos, Direction.UP);
+                if (SpeedMine.INSTANCE != null) {
+                    if (!SpeedMine.INSTANCE.isToggled()) SpeedMine.INSTANCE.setToggled(true);
+                    SpeedMine.INSTANCE.mineBlock(cityPos, Direction.UP);
                 }
                 break;
             }

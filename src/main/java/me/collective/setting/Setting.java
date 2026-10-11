@@ -43,6 +43,11 @@ public class Setting<T> {
         if (changeListener != null) {
             changeListener.accept(value);
         }
+        // Любое изменение настройки помечает конфиг для автосейва
+        try {
+            me.collective.config.ConfigManager.getInstance().markDirty();
+        } catch (Throwable ignored) {
+        }
     }
 
     public void setValueQuietly(T value) {

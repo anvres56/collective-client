@@ -6,6 +6,7 @@ import me.collective.event.events.PacketEvent;
 import me.collective.event.events.TickEvent;
 import me.collective.manager.FriendManager;
 import me.collective.module.Module;
+import me.collective.module.ModuleManager;
 import me.collective.setting.*;
 import me.collective.util.RotationUtils;
 import net.minecraft.block.BlockState;
@@ -44,14 +45,11 @@ public class KillAura extends Module {
     public static ModeSetting pending = new ModeSetting("Режим ротации", "Smooth", "Matrix", "Random Smooth ", "Snap", "FOV", "Smooth ", "FunTime", "FT-New", "SpookyTime", "ST-Test", "Legit", "Custom");
     public static ActionSetting previous = new ActionSetting("Конструктор ротации", 0);
     public static NumberSetting latest = new NumberSetting("AI Jitter", 1.0F, 0.0F, 2.0F, 0.05F);
-    public static BooleanSetting summary = new BooleanSetting("AI Debug Log", false);
-    public static BooleanSetting matrixBlend = new BooleanSetting("AI Human Misses", false);
     public static ActionSetting vectorMatch = new ActionSetting("AI Lab", 0);
     public static ModeSetting itemProject = new ModeSetting("Режим снапа", "Fast", "Fast", "Smooth", "Random");
     public static NumberSetting responseCompute = new NumberSetting("FOV", 90.0F, 5.0F, 180.0F, 1.0F);
     public static BooleanSetting providerFetch = new BooleanSetting("Отображать FOV", true);
-    public static NumberSetting profileDraw = new NumberSetting("Скорость Legit", 0.08F, 0.02F, 0.4F, 0.01F);
-    public static BooleanSetting vectorPerform = new BooleanSetting("SidePoint Extra Checks", false);
+    public static NumberSetting profileDraw = new NumberSetting("Скорость", 0.08F, 0.02F, 0.4F, 0.01F);
 
     public static ChoiceSetting providerClose = new ChoiceSetting(
         "Цели",
@@ -119,14 +117,11 @@ public class KillAura extends Module {
         add(pending);
         add(previous);
         add(latest);
-        add(summary);
-        add(matrixBlend);
         add(vectorMatch);
         add(itemProject);
         add(responseCompute);
         add(providerFetch);
         add(profileDraw);
-        add(vectorPerform);
         add(providerClose);
         add(presetSave);
         add(windowConvert);
@@ -243,7 +238,7 @@ public class KillAura extends Module {
         if (entity == null || entity == mc.player || entity instanceof ClientPlayerEntity) return false;
         if (!entity.isAlive() || entity.isInvulnerable() || entity instanceof ArmorStandEntity) return false;
 
-        float maxDist = getAttackDistance(entity) + target.compute();
+        float maxDist = getAttackDistance(entity) + target.compute() + hitboxBonus();
         if (mc.player.distanceTo(entity) > maxDist) return false;
 
         if (!colorMeasure.process("Бить через блоки") && !mc.player.canSee(entity)) {
@@ -313,8 +308,16 @@ public class KillAura extends Module {
         return s == null ? "" : s.replaceAll("(?i)§.", "").replaceAll("(?i)&.", "").replaceAll("\\p{Cntrl}", "").trim().toLowerCase(Locale.ROOT);
     }
 
-    public static float getAttackDistance(LivingEntity entity) {
-        if (entity == null) return source.compute();
+    /** Бонус дистанции от HitBox.AffectToAura. */
+    private static float hitboxBonus() {
+        HitBox hb = ModuleManager.INSTANCE.getModule(HitBox.class);
+        if (hb != null && hb.isToggled() && hb.affectToAura.getValue()) {
+            return hb.xzExpand.compute();
+        }
+        return 0f;
+    }
+
+    public static float getAttackDistance(LivingEntity entity) {        if (entity == null) return source.compute();
 
         float dist = source.compute();
         if (animationSchedule.process("Расширенная настройки для атаки")) {

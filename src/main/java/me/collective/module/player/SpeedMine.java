@@ -57,13 +57,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * BepMine — быстрый packet-mine с обходом GrimAC.
+ * SpeedMine — быстрый packet-mine с обходом GrimAC.
  *
  * Порт из BepHax (NEW-SRC, Mojmap) на Yarn 1.21.11.
  * Основные адаптации 1.21.11 описаны по коду: BlockStatePredictionHandler удалён
  * (см. sendInstaBreak), пакет ACK последовательности блоков удалён (см. onPacketReceive).
  */
-public class BepMine extends Module {
+public class SpeedMine extends Module {
     private final SettingGroup sgGeneral = this.settings.getDefaultGroup();
     private final SettingGroup sgAutoMine = this.settings.createGroup("Авто-майнинг");
     private final SettingGroup sgRender = this.settings.createGroup("Отображение");
@@ -367,10 +367,10 @@ public class BepMine extends Module {
     private final ArrayDeque<Long> digPacketTimes = new ArrayDeque<>();
     private final ArrayDeque<Long> bypassPacketTimes = new ArrayDeque<>();
 
-    public static BepMine INSTANCE;
+    public static SpeedMine INSTANCE;
 
-    public BepMine() {
-        super("BepMine", "Быстрое разрушение блоков (packet-mine) с обходом GrimAC.", Category.PLAYER);
+    public SpeedMine() {
+        super("SpeedMine", "Быстрое разрушение блоков (packet-mine) с обходом GrimAC.", Category.PLAYER);
         INSTANCE = this;
     }
 
@@ -1754,7 +1754,7 @@ public class BepMine extends Module {
             this.direction = direction;
             this.autoTarget = autoTarget;
             this.manualFace = manualFace;
-            this.swapPoint = BepMine.this.rollSwapPoint();
+            this.swapPoint = SpeedMine.this.rollSwapPoint();
         }
 
         public BlockPos getPos() {
@@ -1766,7 +1766,7 @@ public class BepMine extends Module {
         }
 
         public BlockState getState() {
-            return BepMine.this.mc.world.getBlockState(this.pos);
+            return SpeedMine.this.mc.world.getBlockState(this.pos);
         }
 
         public float getBlockDamage() {

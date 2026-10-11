@@ -16,6 +16,22 @@ public class ScriptManager {
     private final Map<String, ScriptContext> activeContexts = new HashMap<>();
     private ScriptEngineManager engineManager;
 
+    // Публичные мосты для биндингов print/log.
+    // НЕ использовать лямбды/метод-референсы (ctx::print) — Kotlin scripting
+    // компилятор не может получить доступ к синтетическому классу
+    // ScriptManager$$Lambda и падает с "Cannot access script provided property class".
+    public static final class PrintBridge implements java.util.function.Consumer<Object> {
+        private final ScriptContext ctx;
+        public PrintBridge(ScriptContext ctx) { this.ctx = ctx; }
+        @Override public void accept(Object o) { ctx.print(o); }
+    }
+
+    public static final class LogBridge implements java.util.function.Consumer<Object> {
+        private final ScriptContext ctx;
+        public LogBridge(ScriptContext ctx) { this.ctx = ctx; }
+        @Override public void accept(Object o) { ctx.log(o); }
+    }
+
     private ScriptManager() {
         this.scriptsFolder = FabricLoader.getInstance().getGameDir().resolve("collective").resolve("scripts");
         try {
@@ -75,7 +91,14 @@ public class ScriptManager {
         String ext = name.substring(name.lastIndexOf('.') + 1);
         ScriptEngine engine = getEngineForExtension(ext);
         if (engine == null) {
-            System.err.println("[Collective-Scripting] No script engine found for extension: ." + ext);
+            StringBuilder available = new StringBuilder();
+            try {
+                for (javax.script.ScriptEngineFactory f : engineManager.getEngineFactories()) {
+                    available.append(f.getEngineName()).append(f.getExtensions()).append("; ");
+                }
+            } catch (Exception ignored) {}
+            System.err.println("[Collective-Scripting] No script engine found for extension: ." + ext + " Available: " + available);
+            ChatHelper.sendMessage(Text.literal("§c[Script] Нет движка для ." + ext + ". Доступно: " + (available.length() == 0 ? "пусто, пересобери мод с Kotlin" : available.toString())));
             return false;
         }
 
@@ -84,8 +107,8 @@ public class ScriptManager {
         bindings.put("ctx", ctx);
         bindings.put("mc", ctx.mc);
         bindings.put("client", ctx.mc);
-        bindings.put("print", (java.util.function.Consumer<Object>) ctx::print);
-        bindings.put("log", (java.util.function.Consumer<Object>) ctx::log);
+        bindings.put("print", new PrintBridge(ctx));
+        bindings.put("log", new LogBridge(ctx));
         bindings.put("modules", me.collective.module.ModuleManager.INSTANCE);
         bindings.put("commands", me.collective.command.CommandManager.INSTANCE);
         bindings.put("events", me.collective.event.EventBus.INSTANCE);
@@ -111,22 +134,49 @@ public class ScriptManager {
     }
 
     private ScriptEngine getEngineForExtension(String ext) {
-        if (engineManager == null) engineManager = new ScriptEngineManager(getClass().getClassLoader());
+        if (engineManager == null) {
+            // Пробуем сначала classloader мода, потом context classloader Fabric
+            engineManager = new ScriptEngineManager(getClass().getClassLoader());
+            if (engineManager.getEngineFactories().isEmpty()) {
+                engineManager = new ScriptEngineManager(Thread.currentThread().getContextClassLoader());
+            }
+        }
         
         ScriptEngine engine = engineManager.getEngineByExtension(ext);
         if (engine != null) return engine;
 
-        // Try standard Kotlin engine names
+        // Try standard Kotlin engine names (kotlin-main-kts регистрируется как "kotlin" / "kts")
         if (ext.equalsIgnoreCase("kts") || ext.equalsIgnoreCase("kt")) {
             engine = engineManager.getEngineByName("kotlin");
             if (engine != null) return engine;
+            engine = engineManager.getEngineByName("Kotlin");
+            if (engine != null) return engine;
             engine = engineManager.getEngineByName("kts");
+            if (engine != null) return engine;
+            engine = engineManager.getEngineByName("kt");
             if (engine != null) return engine;
         }
 
         // Try javascript or groovy as alternative fallbacks
         if (ext.equalsIgnoreCase("js")) return engineManager.getEngineByName("nashorn");
         if (ext.equalsIgnoreCase("groovy")) return engineManager.getEngineByName("groovy");
+
+        // Прямой fallback без ServiceLoader: Fabric JiJ прячет META-INF/services
+        // внутри META-INF/jars/, поэтому ScriptEngineManager может быть пустым.
+        // Создаём Kotlin JSR-223 фабрику напрямую по имени класса.
+        if (ext.equalsIgnoreCase("kts") || ext.equalsIgnoreCase("kt")) {
+            try {
+                Class<?> facClass = Class.forName(
+                    "kotlin.script.experimental.jsr223.KotlinJsr223DefaultScriptEngineFactory",
+                    true, getClass().getClassLoader());
+                javax.script.ScriptEngineFactory fac =
+                    (javax.script.ScriptEngineFactory) facClass.getDeclaredConstructor().newInstance();
+                ScriptEngine direct = fac.getScriptEngine();
+                if (direct != null) return direct;
+            } catch (Throwable t) {
+                System.err.println("[Collective-Scripting] Direct Kotlin factory failed: " + t);
+            }
+        }
 
         return null;
     }

@@ -78,6 +78,10 @@ public abstract class Module {
             if (mc.player != null && me.collective.module.client.Notifications.INSTANCE != null) {
                 me.collective.module.client.Notifications.INSTANCE.notifyModule(this, toggled);
             }
+            try {
+                me.collective.config.ConfigManager.getInstance().markDirty();
+            } catch (Throwable ignored) {
+            }
         }
     }
 

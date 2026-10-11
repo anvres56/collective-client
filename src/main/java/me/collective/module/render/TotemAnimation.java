@@ -51,7 +51,8 @@ public class TotemAnimation extends Module {
         int sh = mc.getWindow().getScaledHeight();
 
         matrices.push();
-        float adj = (float) elapsed + tickDelta;
+        try {
+            float adj = (float) elapsed + tickDelta;
         float baseScale = 0.5f + 1.75f * MathHelper.sin(oscRad);
 
         switch (mode.getValue()) {
@@ -119,7 +120,9 @@ public class TotemAnimation extends Module {
                 0
         );
 
-        matrices.pop();
+        } finally {
+            matrices.pop();
+        }
         return true;
     }
 

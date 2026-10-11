@@ -148,6 +148,7 @@ public class ContainerTooltips extends Module {
 
     private TooltipData currentTooltip = null;
     private long lastUpdateTime = 0L;
+    private boolean wasInWorld = false;
 
     public ContainerTooltips() {
         super("ContainerTooltips", "Показывает содержимое контейнера или шалкера при наведении.", Category.RENDER);
@@ -162,7 +163,24 @@ public class ContainerTooltips extends Module {
     @Override
     public void onDeactivate() {
         currentTooltip = null;
+        ChestTrackerDataManager.saveData();
         ChestTrackerDataManager.onModuleDeactivate();
+    }
+
+    @Override
+    public void onUpdate() {
+        // Замена GameJoined/GameLeft из b2xy: выход из мира — сохранить индекс,
+        // вход обрабатывается лениво через getData(), плюс периодический автосейв.
+        if (mc.world == null) {
+            if (wasInWorld) {
+                wasInWorld = false;
+                currentTooltip = null;
+                ChestTrackerDataManager.saveData();
+            }
+            return;
+        }
+        wasInWorld = true;
+        ChestTrackerDataManager.tickAutosave();
     }
 
     

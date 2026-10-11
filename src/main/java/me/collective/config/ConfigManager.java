@@ -1,0 +1,273 @@
+package me.collective.config;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
+import me.collective.command.ChatHelper;
+import me.collective.command.CommandManager;
+import me.collective.manager.FriendManager;
+import me.collective.module.Module;
+import me.collective.module.ModuleManager;
+import me.collective.module.hud.HudModule;
+import me.collective.setting.ChoiceSetting;
+import me.collective.setting.ColorSetting;
+import me.collective.setting.EnumSetting;
+import me.collective.setting.Keybind;
+import me.collective.setting.KeybindSetting;
+import me.collective.setting.ModeSetting;
+import me.collective.setting.NumberSetting;
+import me.collective.setting.Setting;
+import me.collective.setting.StringSetting;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.text.Text;
+
+import java.awt.Color;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Система конфигов клиента.
+ *
+ * <p>Хранит в {@code .minecraft/collective/configs/*.json}: вкл/выкл модулей,
+ * все их настройки, позиции HUD-элементов, префикс команд и список друзей.
+ * {@code default.json} грузится при старте и автосохраняется при изменениях,
+ * поэтому настройки больше не сбрасываются после перезахода.
+ */
+public class ConfigManager {
+    public static final ConfigManager INSTANCE = new ConfigManager();
+    public static final String DEFAULT_NAME = "default";
+
+    /** Пауза автосейва после последнего изменения. */
+    private static final long AUTOSAVE_MS = 30_000L;
+
+    private final Path configsFolder;
+    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
+    private boolean dirty = false;
+    private long lastSave = System.currentTimeMillis();
+
+    private ConfigManager() {
+        this.configsFolder = FabricLoader.getInstance().getGameDir().resolve("collective").resolve("configs");
+        try {
+            Files.createDirectories(configsFolder);
+        } catch (Exception ignored) {
+        }
+    }
+
+    public static ConfigManager getInstance() {
+        return INSTANCE;
+    }
+
+    public Path getConfigsFolder() {
+        return configsFolder;
+    }
+
+    /** Помечает конфиг изменённым (вызывается из настроек и модулей). */
+    public void markDirty() {
+        dirty = true;
+    }
+
+    /** Вызывается каждый клиентский тик: автосейв default при изменениях. */
+    public void tick() {
+        if (!dirty) return;
+        if (System.currentTimeMillis() - lastSave < AUTOSAVE_MS) return;
+        save(DEFAULT_NAME);
+    }
+
+    public File fileOf(String name) {
+        String safe = name.replaceAll("[^a-zA-Z0-9а-яА-ЯёЁ_\\- ]", "_").trim();
+        if (safe.isEmpty()) safe = DEFAULT_NAME;
+        return configsFolder.resolve(safe + ".json").toFile();
+    }
+
+    public List<String> list() {
+        List<String> names = new ArrayList<>();
+        File[] files = configsFolder.toFile().listFiles((dir, n) -> n.endsWith(".json"));
+        if (files == null) return names;
+        for (File f : files) {
+            String n = f.getName();
+            names.add(n.substring(0, n.length() - 5));
+        }
+        names.sort(String::compareToIgnoreCase);
+        return names;
+    }
+
+    public synchronized boolean save(String name) {
+        try {
+            JsonObject root = new JsonObject();
+            root.addProperty("prefix", CommandManager.INSTANCE.getPrefix());
+
+            JsonArray friends = new JsonArray();
+            for (String f : FriendManager.INSTANCE.getFriends()) friends.add(f);
+            root.add("friends", friends);
+
+            JsonObject modules = new JsonObject();
+            for (Module m : ModuleManager.INSTANCE.getModules()) {
+                JsonObject mj = new JsonObject();
+                mj.addProperty("toggled", m.isToggled());
+                if (m instanceof HudModule hud) {
+                    mj.addProperty("x", hud.getX());
+                    mj.addProperty("y", hud.getY());
+                }
+                JsonObject settings = new JsonObject();
+                for (Setting<?> s : m.getSettings()) {
+                    JsonElement v = serializeSetting(s);
+                    if (v != null) settings.add(s.getName(), v);
+                }
+                mj.add("settings", settings);
+                modules.add(m.getName(), mj);
+            }
+            root.add("modules", modules);
+
+            Files.writeString(fileOf(name).toPath(), gson.toJson(root));
+            dirty = false;
+            lastSave = System.currentTimeMillis();
+            return true;
+        } catch (Exception e) {
+            System.err.println("[Collective-Config] Save failed (" + name + "): " + e.getMessage());
+            return false;
+        }
+    }
+
+    public synchronized boolean load(String name) {
+        File f = fileOf(name);
+        if (!f.isFile()) return false;
+        try {
+            JsonObject root = gson.fromJson(Files.readString(f.toPath()), JsonObject.class);
+            if (root == null) return false;
+
+            if (root.has("prefix")) {
+                CommandManager.INSTANCE.setPrefix(root.get("prefix").getAsString());
+            }
+
+            if (root.has("friends") && root.get("friends").isJsonArray()) {
+                FriendManager.INSTANCE.getFriends().clear();
+                for (JsonElement e : root.getAsJsonArray("friends")) {
+                    if (e.isJsonPrimitive()) FriendManager.INSTANCE.addFriend(e.getAsString());
+                }
+            }
+
+            if (root.has("modules") && root.get("modules").isJsonObject()) {
+                JsonObject modules = root.getAsJsonObject("modules");
+                for (Module m : ModuleManager.INSTANCE.getModules()) {
+                    if (!modules.has(m.getName())) continue;
+                    JsonObject mj = modules.getAsJsonObject(m.getName());
+                    if (mj.has("toggled")) {
+                        m.setToggled(mj.get("toggled").getAsBoolean());
+                    }
+                    if (m instanceof HudModule hud && mj.has("x") && mj.has("y")) {
+                        hud.setX(mj.get("x").getAsFloat());
+                        hud.setY(mj.get("y").getAsFloat());
+                    }
+                    if (mj.has("settings") && mj.get("settings").isJsonObject()) {
+                        JsonObject settings = mj.getAsJsonObject("settings");
+                        for (Setting<?> s : m.getSettings()) {
+                            if (!settings.has(s.getName())) continue;
+                            try {
+                                applySetting(s, settings.get(s.getName()));
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+                }
+            }
+
+            dirty = false;
+            return true;
+        } catch (Exception e) {
+            System.err.println("[Collective-Config] Load failed (" + name + "): " + e.getMessage());
+            ChatHelper.sendMessage(Text.literal("§c[Config] Ошибка загрузки конфига: " + e.getMessage()));
+            return false;
+        }
+    }
+
+    public boolean loadDefault() {
+        File f = fileOf(DEFAULT_NAME);
+        if (!f.isFile()) return false;
+        return load(DEFAULT_NAME);
+    }
+
+    private static JsonElement serializeSetting(Setting<?> s) {
+        // ChoiceSetting: строка + вложенные тумблеры опций
+        if (s instanceof ChoiceSetting cs) {
+            JsonObject o = new JsonObject();
+            o.addProperty("value", String.valueOf(s.getValue()));
+            JsonObject opts = new JsonObject();
+            for (me.collective.setting.BooleanSetting opt : cs.getOptions()) {
+                opts.addProperty(opt.getName(), opt.getValue());
+            }
+            o.add("options", opts);
+            return o;
+        }
+        if (s instanceof EnumSetting<?> es) {
+            Object v = es.getValue();
+            return v == null ? null : new JsonPrimitive(v.toString());
+        }
+        if (s instanceof ColorSetting) {
+            Object v = s.getValue();
+            if (v instanceof Color c) return new JsonPrimitive(c.getRGB());
+            return null;
+        }
+        Object v = s.getValue();
+        if (v instanceof Keybind k) return new JsonPrimitive(k.getKey());
+        if (v instanceof Boolean b) return new JsonPrimitive(b);
+        if (v instanceof Number n) return new JsonPrimitive(n.doubleValue());
+        if (v instanceof String str) return new JsonPrimitive(str);
+        if (v instanceof Color c) return new JsonPrimitive(c.getRGB());
+        // ActionSetting и прочие кнопки без состояния — не храним
+        return null;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void applySetting(Setting<?> s, JsonElement el) {
+        if (s instanceof ChoiceSetting cs && el.isJsonObject()) {
+            JsonObject o = el.getAsJsonObject();
+            if (o.has("value")) ((Setting) s).setValue(o.get("value").getAsString());
+            if (o.has("options") && o.get("options").isJsonObject()) {
+                JsonObject opts = o.getAsJsonObject("options");
+                for (me.collective.setting.BooleanSetting opt : cs.getOptions()) {
+                    if (opts.has(opt.getName())) opt.setValue(opts.get(opt.getName()).getAsBoolean());
+                }
+            }
+            return;
+        }
+        if (!el.isJsonPrimitive()) return;
+        if (s instanceof EnumSetting es) {
+            es.setByName(el.getAsString());
+            return;
+        }
+        if (s instanceof ColorSetting) {
+            ((Setting) s).setValue(new Color(el.getAsInt(), true));
+            return;
+        }
+        if (s instanceof KeybindSetting) {
+            ((Setting) s).setValue(el.getAsInt());
+            return;
+        }
+        if (s instanceof NumberSetting) {
+            ((Setting) s).setValue(el.getAsDouble());
+            return;
+        }
+        if (s instanceof ModeSetting || s instanceof StringSetting) {
+            ((Setting) s).setValue(el.getAsString());
+            return;
+        }
+        Object cur = s.getValue();
+        if (cur instanceof Keybind) {
+            ((Setting) s).setValue(new Keybind(el.getAsInt()));
+        } else if (cur instanceof Boolean) {
+            ((Setting) s).setValue(el.getAsBoolean());
+        } else if (cur instanceof Number) {
+            ((Setting) s).setValue(el.getAsDouble());
+        } else if (cur instanceof String) {
+            ((Setting) s).setValue(el.getAsString());
+        } else if (cur instanceof Color) {
+            ((Setting) s).setValue(new Color(el.getAsInt(), true));
+        }
+    }
+}

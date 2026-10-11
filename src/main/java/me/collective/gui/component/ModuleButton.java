@@ -34,6 +34,10 @@ public class ModuleButton extends Component {
                 components.add(new SliderComponent((NumberSetting) setting, x, curY, width, settingH));
             } else if (setting instanceof EnumSetting) {
                 components.add(new EnumComponent((EnumSetting<?>) setting, x, curY, width, settingH));
+            } else if (setting instanceof ModeSetting) {
+                components.add(new ModeComponent((ModeSetting) setting, x, curY, width, settingH));
+            } else if (setting instanceof ChoiceSetting) {
+                components.add(new ChoiceComponent((ChoiceSetting) setting, x, curY, width, settingH));
             } else if (setting instanceof ColorSetting) {
                 components.add(new ColorComponent((ColorSetting) setting, x, curY, width, settingH));
             } else if (setting instanceof KeybindSetting) {

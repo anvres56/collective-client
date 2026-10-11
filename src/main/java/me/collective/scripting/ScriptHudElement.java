@@ -78,7 +78,16 @@ public class ScriptHudElement extends HudModule {
     @Override
     public void render(DrawContext context, float delta) {
         if (renderAction != null) {
-            renderAction.accept(context, delta);
+            // Встроенные HUD-модули (Watermark/Bps) рисуют в абсолютных x,y.
+            // Скрипты рисуют в локальных 0,0 — сдвигаем матрицы, иначе картинка
+            // висит в углу экрана, а хитбокс для перетаскивания в другом месте.
+            context.getMatrices().pushMatrix();
+            context.getMatrices().translate(x, y);
+            try {
+                renderAction.accept(context, delta);
+            } finally {
+                context.getMatrices().popMatrix();
+            }
         }
     }
 }

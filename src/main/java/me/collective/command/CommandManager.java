@@ -35,6 +35,8 @@ public class CommandManager {
         register(new ElytraFlyCommand());
         register(new AddonCommand());
         register(new ScriptCommand());
+        register(new HudImageCommand());
+        register(new ConfigCommand());
     }
 
     public void register(Command command) {

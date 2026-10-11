@@ -237,6 +237,18 @@ public abstract class MixinChatInputSuggestor {
                     suggestMatching(Arrays.asList("list", "reload", "folder"), currentArg, builder);
                 }
             }
+            case "config", "cfg", "конфиг" -> {
+                if (argIndex == 1) {
+                    suggestMatching(Arrays.asList("save", "load", "list", "delete", "folder"), currentArg, builder);
+                } else if (argIndex == 2 && ("load".equalsIgnoreCase(parts[1]) || "delete".equalsIgnoreCase(parts[1]))) {
+                    suggestMatching(me.collective.config.ConfigManager.getInstance().list(), currentArg, builder);
+                }
+            }
+            case "hudimage", "setimage", "img" -> {
+                if (argIndex == 1) {
+                    suggestMatching(Arrays.asList("Collective", "Komod1", "Komod2", "Komod3"), currentArg, builder);
+                }
+            }
             default -> {
                 // Для других команд ничего не подсказываем автоматически
             }

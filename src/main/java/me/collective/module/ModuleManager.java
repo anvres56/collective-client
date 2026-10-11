@@ -8,6 +8,7 @@ import me.collective.module.hud.*;
 import me.collective.module.movement.*;
 import me.collective.module.player.*;
 import me.collective.module.render.*;
+import me.collective.module.misc.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +45,15 @@ public class ModuleManager {
         register(new AutoCity());
         register(new AutoTnt());
         register(new AutoWither());
+        register(new BedAura());
+        register(new AutoTrap());
+        register(new WebAura());
+        register(new HoleFiller());
+        register(new CevBreaker());
+        register(new BowAimbot());
+        register(new HitBox());
+        register(new Reach());
+        register(new TNTAura());
 
         // Movement Modules
         register(new GrimVelocity());
@@ -65,6 +75,12 @@ public class ModuleManager {
         register(new Pitch40());
         register(new HoleSnap());
         register(new ControlFly());
+        register(new AntiHunger());
+        register(new AutoWalk());
+        register(new AntiVoid());
+        register(new ElytraFly());
+        register(new EntityControl());
+        register(new Parkour());
 
         // Player Modules
         register(new ChestSwap());
@@ -74,7 +90,7 @@ public class ModuleManager {
         register(new Replenish());
         register(new GrimAirPlace());
         register(new EchestRebreak());
-        register(new BepMine());
+        register(new SpeedMine());
         register(new AntiAFK());
         register(new AutoRespawn());
         register(new MiddleClickExtra());
@@ -85,6 +101,12 @@ public class ModuleManager {
         register(new LitematicaPrinter());
         register(new StashMover());
         register(new StashSorter());
+        register(new AutoMend());
+        register(new GhostHand());
+        register(new MultiTask());
+        register(new AutoCraft());
+        register(new AutoDrop());
+        register(new NoRotate());
 
         // Exploit Modules
         register(new NewChunks());
@@ -109,6 +131,17 @@ public class ModuleManager {
         register(new ContainerIndex());
         register(new ContainerTooltips());
         register(new Tooltips());
+        register(new Search());
+        register(new Tracers());
+
+        // Misc Modules
+        register(new AntiBot());
+        register(new FakePlayer());
+        register(new AutoEZ());
+        register(new SkinBlinker());
+        register(new AutoAuth());
+        register(new Spammer());
+        register(new EmotesModule());
 
         // HUD Modules
         register(new Watermark());
@@ -129,10 +162,10 @@ public class ModuleManager {
         register(new Music());
         register(new Crypto());
         register(new Bps());
+        register(new ImageHUD());
     }
 
-    public void register(Module module) {
-        modules.add(module);
+    public void register(Module module) {        modules.add(module);
         if (module instanceof HudModule) {
             hudModules.add((HudModule) module);
         }

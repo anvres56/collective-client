@@ -2,441 +2,213 @@ package me.collective.module.movement;
 
 import me.collective.category.Category;
 import me.collective.event.EventHandler;
-import me.collective.event.events.TickEvent;
+import me.collective.event.events.PacketEvent;
 import me.collective.module.Module;
 import me.collective.setting.BooleanSetting;
-import me.collective.setting.NumberSetting;
+import me.collective.setting.KeybindSetting;
+import me.collective.setting.ModeSetting;
+import me.collective.util.FindItemResult;
 import me.collective.util.InventoryUtil;
-import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
+import net.minecraft.network.packet.c2s.play.CloseHandledScreenC2SPacket;
+import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
+import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.Hand;
 
 /**
- * ElytraSwap: автоматически меняет элитры при низкой прочности (поэтапно, до 4 стадий —
- * из инвентаря через хотбар и обратно), плюс боевая защита: при ударе ставит нагрудник,
- * а после — элитры обратно. 1:1 порт из b2xy.
+ * Порт ElytraSwap из ThunderHack-Recode.
+ *
+ * <p>Режим Enable: при включении один раз меняет нагрудник на элитру (или
+ * обратно) и самоотключается. Режим Bind: смена по кнопке, запуск фейерверка
+ * по кнопке и авто-фейерверк при старте планирования.
  */
 public class ElytraSwap extends Module {
+    public static ElytraSwap INSTANCE;
 
-    public final NumberSetting durabilityThreshold = add(new NumberSetting("DurabilityThreshold", 10, 1, 100, 1));
-    public final BooleanSetting onlyWhileFlying = add(new BooleanSetting("OnlyWhileFlying", false));
-    public final BooleanSetting pauseInInventory = add(new BooleanSetting("PauseInInventory", true));
-    public final NumberSetting swapCooldown = add(new NumberSetting("SwapCooldown", 100, 20, 200, 1));
-    public final NumberSetting stageDelay = add(new NumberSetting("StageDelay", 8, 3, 20, 1));
-    public final BooleanSetting notifySwap = add(new BooleanSetting("NotifySwap", true));
+    public final BooleanSetting delay = add(new BooleanSetting("Delay", false));
+    public final ModeSetting mode = add(new ModeSetting("Mode", "Enable", "Enable", "Bind"));
+    public final KeybindSetting switchButton = add(new KeybindSetting("SwitchButton", -1));
+    public final KeybindSetting fireWorkButton = add(new KeybindSetting("FireWorkButton", -1));
+    public final BooleanSetting startFireWork = add(new BooleanSetting("StartFireWork", true));
+    public final ModeSetting fireWorkMode = add(new ModeSetting("FireWorkMode", "Normal", "Silent", "Normal"));
 
-    public final BooleanSetting swapOnHit = add(new BooleanSetting("SwapOnHit", false));
-    public final NumberSetting hitProtectionDuration = add(new NumberSetting("HitProtectionDuration", 60, 20, 200, 1, (v) -> swapOnHit.getValue()));
-    public final BooleanSetting autoSwapBack = add(new BooleanSetting("AutoSwapBack", true, (v) -> swapOnHit.getValue()));
-    public final BooleanSetting prioritizeNetherite = add(new BooleanSetting("PrioritizeNetherite", true, (v) -> swapOnHit.getValue()));
-
-    private int cooldownTimer;
-    private boolean needsSwap;
-    private int swapStage;
-    private int stageTimer;
-    private int targetSlot;
-    private int newElytraOriginalSlot;
-    private int hotbarSlotUsed;
-    private ItemStack hotbarOriginalItem = ItemStack.EMPTY;
-    private boolean protectionActive;
-    private int protectionTimer;
-    private int lastHurtTime;
-    private boolean needsChestplateSwap;
-    private int chestplateSwapStage;
-    private int chestplateSlot;
-    private ItemStack storedElytra = ItemStack.EMPTY;
+    public static boolean swapping = false;
+    private long lastSwitch = 0L;
+    private long lastFirework = 0L;
 
     public ElytraSwap() {
-        super("ElytraSwap", "Автоматически меняет элитры при низкой прочности и надевает нагрудник при ударе.", Category.MOVEMENT);
+        super("ElytraSwap", "Быстрая смена нагрудника на элитру и обратно + авто-фейерверк.", Category.MOVEMENT);
+        INSTANCE = this;
     }
 
     @Override
     public void onEnable() {
-        resetSwapState();
+        if (mode.process("Enable")) swapChest(true);
     }
 
     @Override
-    public void onDisable() {
-        resetSwapState();
-    }
-
-    private void resetSwapState() {
-        this.cooldownTimer = 0;
-        this.needsSwap = false;
-        this.swapStage = 0;
-        this.stageTimer = 0;
-        this.targetSlot = -1;
-        this.newElytraOriginalSlot = -1;
-        this.hotbarSlotUsed = -1;
-        this.hotbarOriginalItem = ItemStack.EMPTY;
-        this.protectionActive = false;
-        this.protectionTimer = 0;
-        this.lastHurtTime = 0;
-        this.needsChestplateSwap = false;
-        this.chestplateSwapStage = 0;
-        this.chestplateSlot = -1;
-        this.storedElytra = ItemStack.EMPTY;
+    public void onUpdate() {
+        if (!mode.process("Bind") || mc.player == null || mc.currentScreen != null) return;
+        long now = System.currentTimeMillis();
+        if (switchButton.getValue() != -1 && switchButton.isPressed() && now - lastSwitch >= 500) {
+            lastSwitch = now;
+            swapChest(false);
+        }
+        if (fireWorkButton.getValue() != -1 && fireWorkButton.isPressed()
+            && now - lastFirework >= 500 && mc.player.isGliding()) {
+            lastFirework = now;
+            useFireWork();
+        }
     }
 
     @EventHandler
-    private void onTick(TickEvent.Pre event) {
-        if (mc.player == null || mc.world == null) return;
-
-        if (this.swapOnHit.getValue()) {
-            this.handleCombatProtection();
-        }
-        if (this.cooldownTimer > 0) {
-            this.cooldownTimer--;
-            return;
-        }
-        if (this.pauseInInventory.getValue() && mc.player.currentScreenHandler != mc.player.playerScreenHandler) {
-            this.resetSwapState();
-            return;
-        }
-        ItemStack chestItem = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-        if (this.protectionActive) {
-            return;
-        }
-        if (!chestItem.getItem().equals(Items.ELYTRA)) {
-            return;
-        }
-        if (this.onlyWhileFlying.getValue() && !mc.player.isGliding()) {
-            return;
-        }
-        if (this.needsSwap) {
-            this.processSwapStages();
-            return;
-        }
-        int currentDurability = chestItem.getMaxDamage() - chestItem.getDamage();
-        if (currentDurability <= this.durabilityThreshold.getIntValue()) {
-            this.initiateSwap();
-        }
+    public void onPacketSend(PacketEvent.Send event) {
+        if (!(event.packet instanceof ClientCommandC2SPacket cmd)) return;
+        if (cmd.getMode() != ClientCommandC2SPacket.Mode.START_FALL_FLYING) return;
+        if (!mode.process("Bind") || !startFireWork.getValue()) return;
+        useFireWork();
     }
 
-    private void initiateSwap() {
-        int bestSlot = -1;
-        int bestDurability = this.durabilityThreshold.getIntValue();
-        for (int i = 0; i < 36; i++) {
-            ItemStack stack = mc.player.getInventory().getStack(i);
-            if (!stack.getItem().equals(Items.ELYTRA)) {
-                continue;
-            }
-            int durability = stack.getMaxDamage() - stack.getDamage();
-            if (durability <= bestDurability) {
-                continue;
-            }
-            bestDurability = durability;
-            bestSlot = i;
-        }
-        if (bestSlot == -1) {
-            return;
-        }
-        this.targetSlot = bestSlot;
-        this.needsSwap = true;
-        this.swapStage = 1;
-        this.stageTimer = 0;
-    }
+    public void useFireWork() {
+        if (mc.player == null || mc.interactionManager == null) return;
+        boolean silent = fireWorkMode.process("Silent");
 
-    private void processSwapStages() {
-        this.stageTimer++;
-        if (this.stageTimer < this.stageDelay.getIntValue()) {
+        FindItemResult hotbar = InventoryUtil.findInHotbar(Items.FIREWORK_ROCKET);
+        if (hotbar.isOffhand()) {
+            mc.interactionManager.interactItem(mc.player, Hand.OFF_HAND);
             return;
         }
-        switch (this.swapStage) {
-            case 1 -> {
-                this.newElytraOriginalSlot = this.targetSlot;
-                if (this.targetSlot >= 9) {
-                    int hotbarSlot = -1;
-                    if (this.hotbarSlotUsed != -1 && this.hotbarSlotUsed < 9) {
-                        hotbarSlot = this.hotbarSlotUsed;
-                    } else {
-                        for (int i = 0; i < 9; i++) {
-                            ItemStack stack = mc.player.getInventory().getStack(i);
-                            if (!stack.isEmpty() && this.isEssentialItem(stack)) {
-                                continue;
-                            }
-                            hotbarSlot = i;
-                            break;
-                        }
-                        if (hotbarSlot == -1) {
-                            hotbarSlot = 0;
-                        }
-                    }
-                    this.hotbarOriginalItem = mc.player.getInventory().getStack(hotbarSlot).copy();
-                    this.hotbarSlotUsed = hotbarSlot;
-                    InventoryUtil.move().from(this.targetSlot).toHotbar(hotbarSlot);
-                    this.targetSlot = hotbarSlot;
-                    this.swapStage = 2;
-                    this.stageTimer = 0;
-                } else {
-                    this.hotbarSlotUsed = this.targetSlot;
-                    this.hotbarOriginalItem = ItemStack.EMPTY;
-                    this.swapStage = 2;
-                    this.stageTimer = 0;
-                }
-            }
-            case 2 -> {
-                ItemStack toEquip = mc.player.getInventory().getStack(this.targetSlot);
-                if (!toEquip.getItem().equals(Items.ELYTRA)) {
-                    this.resetSwapState();
-                    return;
-                }
-                if (toEquip.getItem().equals(Items.LEATHER_LEGGINGS)
-                    || toEquip.getItem().equals(Items.CHAINMAIL_LEGGINGS)
-                    || toEquip.getItem().equals(Items.IRON_LEGGINGS)
-                    || toEquip.getItem().equals(Items.GOLDEN_LEGGINGS)
-                    || toEquip.getItem().equals(Items.DIAMOND_LEGGINGS)
-                    || toEquip.getItem().equals(Items.NETHERITE_LEGGINGS)) {
-                    this.resetSwapState();
-                    return;
-                }
-                InventoryUtil.swap(this.targetSlot, false);
+        if (hotbar.isHotbar()) {
+            if (silent) {
+                InventoryUtil.swap(hotbar.slot(), true);
                 mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-                mc.player.swingHand(Hand.MAIN_HAND);
                 InventoryUtil.swapBack();
-                this.swapStage = 3;
-                this.stageTimer = 0;
-            }
-            case 3 -> {
-                if (this.newElytraOriginalSlot >= 9) {
-                    InventoryUtil.move().fromHotbar(this.targetSlot).to(this.newElytraOriginalSlot);
-                    if (!this.hotbarOriginalItem.isEmpty()) {
-                        this.swapStage = 4;
-                        this.stageTimer = 0;
-                        return;
-                    }
-                }
-                if (this.notifySwap.getValue()) {
-                    ItemStack newChest = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-                    if (newChest.getItem().equals(Items.ELYTRA)) {
-                        int newDurability = newChest.getMaxDamage() - newChest.getDamage();
-                        sendClientMessage("Элитры заменены, прочность " + newDurability);
-                    }
-                }
-                this.needsSwap = false;
-                this.swapStage = 0;
-                this.stageTimer = 0;
-                this.targetSlot = -1;
-                this.cooldownTimer = this.swapCooldown.getIntValue();
-            }
-            case 4 -> {
-                if (this.stageTimer < 3) {
-                    this.stageTimer++;
-                    return;
-                }
-                for (int i = 9; i < 36; i++) {
-                    ItemStack stack = mc.player.getInventory().getStack(i);
-                    if (!ItemStack.areItemsEqual(stack, this.hotbarOriginalItem)) {
-                        continue;
-                    }
-                    InventoryUtil.move().from(i).toHotbar(this.hotbarSlotUsed);
-                    break;
-                }
-                this.needsSwap = false;
-                this.swapStage = 0;
-                this.stageTimer = 0;
-                this.targetSlot = -1;
-                this.cooldownTimer = this.swapCooldown.getIntValue();
-            }
-        }
-    }
-
-    private boolean isEssentialItem(ItemStack stack) {
-        Item item = stack.getItem();
-        return item.equals(Items.TOTEM_OF_UNDYING)
-            || item.equals(Items.GOLDEN_APPLE)
-            || item.equals(Items.ENCHANTED_GOLDEN_APPLE)
-            || item.equals(Items.ENDER_PEARL)
-            || item.equals(Items.CHORUS_FRUIT);
-    }
-
-    private void handleCombatProtection() {
-        if (mc.player == null) return;
-        ItemStack chestItem;
-        if (mc.player.hurtTime > 0 && mc.player.hurtTime > this.lastHurtTime) {
-            this.lastHurtTime = mc.player.hurtTime;
-            chestItem = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-            if (chestItem.getItem().equals(Items.ELYTRA) && !this.protectionActive) {
-                int bestChestplate = this.findBestChestplate();
-                if (bestChestplate != -1) {
-                    this.storedElytra = chestItem.copy();
-                    this.chestplateSlot = bestChestplate;
-                    this.needsChestplateSwap = true;
-                    this.chestplateSwapStage = 1;
-                    this.stageTimer = 0;
-                    this.protectionActive = true;
-                    this.protectionTimer = this.hitProtectionDuration.getIntValue();
-                    if (this.notifySwap.getValue()) {
-                        sendClientMessage("Удар! Надеваю нагрудник для защиты.");
-                    }
-                }
-            } else if (this.protectionActive) {
-                this.protectionTimer = this.hitProtectionDuration.getIntValue();
-            }
-        }
-        if (mc.player.hurtTime < this.lastHurtTime) {
-            this.lastHurtTime = mc.player.hurtTime;
-        }
-        if (this.needsChestplateSwap) {
-            this.processChestplateSwap();
-            return;
-        }
-        if (this.protectionActive && !this.needsChestplateSwap) {
-            this.protectionTimer--;
-            if (this.protectionTimer <= 0 && this.autoSwapBack.getValue()) {
-                chestItem = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-                if (!chestItem.getItem().equals(Items.ELYTRA) && !this.storedElytra.isEmpty()) {
-                    int elytraSlot = this.findStoredElytra();
-                    if (elytraSlot != -1) {
-                        this.chestplateSlot = elytraSlot;
-                        this.needsChestplateSwap = true;
-                        this.chestplateSwapStage = 1;
-                        this.stageTimer = 0;
-                        if (this.notifySwap.getValue()) {
-                            sendClientMessage("Защита окончена, возвращаю элитры.");
-                        }
-                    } else {
-                        this.protectionActive = false;
-                        this.storedElytra = ItemStack.EMPTY;
-                    }
-                } else {
-                    this.protectionActive = false;
-                    this.storedElytra = ItemStack.EMPTY;
-                }
-            }
-        }
-    }
-
-    private void processChestplateSwap() {
-        this.stageTimer++;
-        if (this.stageTimer < this.stageDelay.getIntValue()) {
-            return;
-        }
-        switch (this.chestplateSwapStage) {
-            case 1 -> {
-                if (this.chestplateSlot >= 9) {
-                    int hotbarSlot = 0;
-                    for (int i = 0; i < 9; i++) {
-                        ItemStack stack = mc.player.getInventory().getStack(i);
-                        if (!stack.isEmpty() && this.isEssentialItem(stack)) {
-                            continue;
-                        }
-                        hotbarSlot = i;
-                        break;
-                    }
-                    InventoryUtil.move().from(this.chestplateSlot).toHotbar(hotbarSlot);
-                    this.chestplateSlot = hotbarSlot;
-                }
-                this.chestplateSwapStage = 2;
-                this.stageTimer = 0;
-            }
-            case 2 -> {
-                ItemStack toEquip = mc.player.getInventory().getStack(this.chestplateSlot);
-                if (!this.isChestplateItem(toEquip)) {
-                    this.needsChestplateSwap = false;
-                    this.chestplateSwapStage = 0;
-                    return;
-                }
-                if (toEquip.getItem().equals(Items.LEATHER_LEGGINGS)
-                    || toEquip.getItem().equals(Items.CHAINMAIL_LEGGINGS)
-                    || toEquip.getItem().equals(Items.IRON_LEGGINGS)
-                    || toEquip.getItem().equals(Items.GOLDEN_LEGGINGS)
-                    || toEquip.getItem().equals(Items.DIAMOND_LEGGINGS)
-                    || toEquip.getItem().equals(Items.NETHERITE_LEGGINGS)) {
-                    this.needsChestplateSwap = false;
-                    this.chestplateSwapStage = 0;
-                    return;
-                }
-                InventoryUtil.swap(this.chestplateSlot, false);
+            } else {
+                mc.player.getInventory().selectedSlot = hotbar.slot();
+                mc.interactionManager.syncSelectedSlot();
                 mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
-                mc.player.swingHand(Hand.MAIN_HAND);
-                InventoryUtil.swapBack();
-                this.chestplateSwapStage = 3;
-                this.stageTimer = 0;
             }
-            case 3 -> {
-                this.needsChestplateSwap = false;
-                this.chestplateSwapStage = 0;
-                this.stageTimer = 0;
-                this.chestplateSlot = -1;
-                ItemStack chestItem = mc.player.getEquippedStack(EquipmentSlot.CHEST);
-                if (chestItem.getItem().equals(Items.ELYTRA)) {
-                    this.protectionActive = false;
-                    this.storedElytra = ItemStack.EMPTY;
-                }
+            sendSwing();
+            return;
+        }
+
+        FindItemResult inv = InventoryUtil.find(Items.FIREWORK_ROCKET);
+        if (inv.found() && inv.isMain()) {
+            int syncId = mc.player.currentScreenHandler.syncId;
+            mc.interactionManager.clickSlot(syncId, inv.slot(), mc.player.getInventory().selectedSlot, SlotActionType.SWAP, mc.player);
+            sendClose(syncId);
+            mc.interactionManager.interactItem(mc.player, Hand.MAIN_HAND);
+            sendSwing();
+            if (silent) {
+                mc.interactionManager.clickSlot(syncId, inv.slot(), mc.player.getInventory().selectedSlot, SlotActionType.SWAP, mc.player);
+                sendClose(syncId);
             }
+            return;
         }
+
+        info("У тебя нет фейерверков!");
     }
 
-    private int findBestChestplate() {
-        int bestSlot = -1;
-        int bestValue = 0;
-        for (int i = 0; i < 36; i++) {
-            ItemStack stack = mc.player.getInventory().getStack(i);
-            int value = this.getChestplateValue(stack);
-            if (value <= bestValue) {
-                continue;
-            }
-            bestValue = value;
-            bestSlot = i;
-        }
-        return bestSlot;
-    }
-
-    private int getChestplateValue(ItemStack stack) {
-        if (stack.isEmpty()) return 0;
-        if (stack.getItem().equals(Items.NETHERITE_CHESTPLATE)) {
-            return (this.prioritizeNetherite.getValue() ? 1000 : 400) + (stack.getMaxDamage() - stack.getDamage());
-        }
-        if (stack.getItem().equals(Items.DIAMOND_CHESTPLATE)) {
-            return 300 + (stack.getMaxDamage() - stack.getDamage());
-        }
-        if (stack.getItem().equals(Items.IRON_CHESTPLATE)) {
-            return 200 + (stack.getMaxDamage() - stack.getDamage());
-        }
-        if (stack.getItem().equals(Items.CHAINMAIL_CHESTPLATE)) {
-            return 150 + (stack.getMaxDamage() - stack.getDamage());
-        }
-        if (stack.getItem().equals(Items.GOLDEN_CHESTPLATE)) {
-            return 100 + (stack.getMaxDamage() - stack.getDamage());
-        }
-        if (stack.getItem().equals(Items.LEATHER_CHESTPLATE)) {
-            return 50 + (stack.getMaxDamage() - stack.getDamage());
-        }
-        return 0;
-    }
-
-    private boolean isChestplateItem(ItemStack stack) {
-        if (stack.isEmpty()) return false;
-        Item item = stack.getItem();
-        return item.equals(Items.ELYTRA)
-            || item.equals(Items.NETHERITE_CHESTPLATE)
-            || item.equals(Items.DIAMOND_CHESTPLATE)
-            || item.equals(Items.IRON_CHESTPLATE)
-            || item.equals(Items.GOLDEN_CHESTPLATE)
-            || item.equals(Items.CHAINMAIL_CHESTPLATE)
-            || item.equals(Items.LEATHER_CHESTPLATE);
-    }
-
-    private int findStoredElytra() {
-        for (int i = 0; i < 36; i++) {
-            ItemStack stack = mc.player.getInventory().getStack(i);
-            if (!stack.getItem().equals(Items.ELYTRA)) continue;
-            if (Math.abs(stack.getDamage() - this.storedElytra.getDamage()) > 5) continue;
-            return i;
-        }
-        for (int i = 0; i < 36; i++) {
-            ItemStack stack = mc.player.getInventory().getStack(i);
-            if (stack.getItem().equals(Items.ELYTRA)) return i;
+    public static int getChestPlateSlot() {
+        Item[] items = {Items.NETHERITE_CHESTPLATE, Items.DIAMOND_CHESTPLATE, Items.CHAINMAIL_CHESTPLATE,
+            Items.IRON_CHESTPLATE, Items.GOLDEN_CHESTPLATE, Items.LEATHER_CHESTPLATE};
+        for (Item item : items) {
+            FindItemResult slot = InventoryUtil.find(item);
+            if (slot.found()) return slot.slot();
         }
         return -1;
     }
 
-    private void sendClientMessage(String msg) {
-        if (mc.player != null) {
-            mc.player.sendMessage(net.minecraft.text.Text.literal("§7[§6ElytraSwap§7] §f" + msg), false);
+    private void swapChest(boolean disable) {
+        if (mc.player == null || mc.interactionManager == null) return;
+        FindItemResult elytra = InventoryUtil.find(Items.ELYTRA);
+
+        if (mc.player.getInventory().getStack(38).isOf(Items.ELYTRA)) {
+            int slot = getChestPlateSlot();
+            if (slot != -1) {
+                if (delay.getValue()) {
+                    new Thread(() -> {
+                        swapping = true;
+                        clickSlot(slot);
+                        sleep(200);
+                        clickSlot(6);
+                        sleep(200);
+                        clickSlot(slot);
+                        sendClose(mc.player.currentScreenHandler.syncId);
+                        swapping = false;
+                    }).start();
+                } else {
+                    clickSlot(slot);
+                    clickSlot(6);
+                    clickSlot(slot);
+                    sendClose(mc.player.currentScreenHandler.syncId);
+                }
+            } else {
+                if (disable) disable("У тебя нет нагрудника!");
+                else info("У тебя нет нагрудника!");
+                return;
+            }
+        } else if (elytra.found()) {
+            if (delay.getValue()) {
+                new Thread(() -> {
+                    swapping = true;
+                    clickSlot(elytra.slot());
+                    sleep(200);
+                    clickSlot(6);
+                    sleep(200);
+                    clickSlot(elytra.slot());
+                    sendClose(mc.player.currentScreenHandler.syncId);
+                    if (startFireWork.getValue() && mc.player.fallDistance > 0 && mc.getNetworkHandler() != null) {
+                        mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+                    }
+                    swapping = false;
+                }).start();
+            } else {
+                clickSlot(elytra.slot());
+                clickSlot(6);
+                clickSlot(elytra.slot());
+                sendClose(mc.player.currentScreenHandler.syncId);
+                if (startFireWork.getValue() && mc.player.fallDistance > 0 && mc.getNetworkHandler() != null) {
+                    mc.getNetworkHandler().sendPacket(new ClientCommandC2SPacket(mc.player, ClientCommandC2SPacket.Mode.START_FALL_FLYING));
+                }
+            }
+        } else {
+            if (disable) disable("У тебя нет элитры!");
+            else info("У тебя нет элитры!");
+            return;
         }
+
+        if (disable) disable("Свапнул! Отключаю..");
+    }
+
+    private void clickSlot(int slot) {
+        if (mc.player == null || mc.interactionManager == null) return;
+        mc.interactionManager.clickSlot(mc.player.currentScreenHandler.syncId, slot, 0, SlotActionType.PICKUP, mc.player);
+    }
+
+    private void sendClose(int syncId) {
+        if (mc.getNetworkHandler() != null) {
+            mc.getNetworkHandler().sendPacket(new CloseHandledScreenC2SPacket(syncId));
+        }
+    }
+
+    private void sendSwing() {
+        if (mc.getNetworkHandler() != null) {
+            mc.getNetworkHandler().sendPacket(new HandSwingC2SPacket(Hand.MAIN_HAND));
+        }
+    }
+
+    private static void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void disable(String msg) {
+        info(msg);
+        setToggled(false);
     }
 }

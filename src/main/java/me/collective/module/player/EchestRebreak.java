@@ -34,11 +34,11 @@ import net.minecraft.world.RaycastContext;
 
 /**
  * EchestRebreak — автоматическая установка и моментальное разрушение эндер-сундуков
- * с использованием эксплойта rebreak (из логики FastMine/BepMine).
+ * с использованием эксплойта rebreak (из логики SpeedMine).
  *
  * <p>Предназначен для быстрого и безопасного фарма обсидиана на серверах с GrimAC:
  * <ul>
- *   <li>Интеграция с движком {@link BepMine} (FastMine) для идеального обхода баланса Grim FastBreak;</li>
+ *   <li>Интеграция с движком {@link SpeedMine} (FastMine) для идеального обхода баланса Grim FastBreak;</li>
  *   <li>Установка строго на опорную грань блока с подтверждением рейкаста (обход AirLiquidPlace и RotationPlace);</li>
  *   <li>Фазовое разделение тиков (Pre/Post) и сброс спринта перед установкой;</li>
  *   <li>Автоматический добор эндер-сундуков из инвентаря в хотбар;</li>
@@ -58,9 +58,9 @@ public class EchestRebreak extends Module {
     private final SettingGroup sgRender = settings.createGroup("Рендер");
 
     // General
-    private final Setting<Boolean> useBepMine = sgGeneral.add(new BoolSetting.Builder()
+    private final Setting<Boolean> useSpeedMine = sgGeneral.add(new BoolSetting.Builder()
         .name("использовать-fastmine")
-        .description("Делегировать майнинг модулю FastMine (BepMine) для обхода предсказания баланса Grim.")
+        .description("Делегировать майнинг модулю SpeedMine для обхода предсказания баланса Grim.")
         .defaultValue(true)
         .build());
 
@@ -100,7 +100,7 @@ public class EchestRebreak extends Module {
         .defaultValue(1)
         .min(0)
         .sliderMax(5)
-        .visible(() -> !this.useBepMine.get())
+        .visible(() -> !this.useSpeedMine.get())
         .build());
 
     // Automation
@@ -334,18 +334,18 @@ public class EchestRebreak extends Module {
     }
 
     private void handleBreakEchest(BlockState state) {
-        if (this.useBepMine.get()) {
-            BepMine bepMine = ModuleManager.INSTANCE.getModule(BepMine.class);
-            if (bepMine != null) {
-                if (!bepMine.isActive()) bepMine.toggle();
-                if (!bepMine.isMiningBlock(this.targetPos)) {
-                    bepMine.mineBlock(this.targetPos, Direction.UP);
+        if (this.useSpeedMine.get()) {
+            SpeedMine speedMine = ModuleManager.INSTANCE.getModule(SpeedMine.class);
+            if (speedMine != null) {
+                if (!speedMine.isActive()) speedMine.toggle();
+                if (!speedMine.isMiningBlock(this.targetPos)) {
+                    speedMine.mineBlock(this.targetPos, Direction.UP);
                 }
                 return;
             }
         }
 
-        // Автономный режим (если BepMine выключен)
+        // Автономный режим (если SpeedMine выключен)
         FindItemResult pickaxe = findPickaxe();
         if (!pickaxe.found()) {
             error("В хотбаре нет кирки!");

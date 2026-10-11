@@ -2,7 +2,7 @@ package me.collective.module.movement;
 
 import me.collective.module.ModuleManager;
 import me.collective.module.movement.RocketBoost;
-import me.collective.module.player.BepMine;
+import me.collective.module.player.SpeedMine;
 import me.collective.module.render.Freecam;
 
 import me.collective.setting.Setting;
@@ -655,8 +655,8 @@ public class ControlFly extends Module {
         if (this.mc.player.hurtTime > 0) return "taking damage";
         if (gliderNearlySpent()) return "elytra nearly spent";
 
-        BepMine bepMine = ModuleManager.INSTANCE.getModule(BepMine.class);
-        if (bepMine != null && bepMine.needsMiningTickPacket()) return "mining";
+        SpeedMine speedMine = ModuleManager.INSTANCE.getModule(SpeedMine.class);
+        if (speedMine != null && speedMine.needsMiningTickPacket()) return "mining";
 
         if (this.mc.world.getStatesInBox(this.mc.player.getBoundingBox().expand(0.05))
             .anyMatch(state -> !state.isAir())) {

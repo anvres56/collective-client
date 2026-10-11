@@ -1,46 +1,89 @@
 package me.collective.mixin;
 
-import io.netty.channel.ChannelFutureListener;
-import io.netty.channel.ChannelHandlerContext;
-import me.collective.event.EventBus;
-import me.collective.event.events.PacketEvent;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.network.ClientConnection;
-import net.minecraft.network.packet.Packet;
+import io.netty.bootstrap.AbstractBootstrap;
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandler;
+import io.netty.channel.ChannelInitializer;
+import io.netty.handler.proxy.HttpProxyHandler;
+import io.netty.handler.proxy.Socks5ProxyHandler;
+import me.collective.proxy.ProxyEntry;
+import me.collective.proxy.ProxyManager;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.Redirect;
 
-import me.collective.util.PacketUtil;
-import net.minecraft.network.ClientConnection;
-import net.minecraft.network.packet.Packet;
-import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 
-@Mixin(ClientConnection.class)
-public class MixinClientConnection {
+/**
+ * Подключение через выбранный прокси (SOCKS5/HTTP).
+ *
+ * <p>Перехватывает финальный connect: вместо сервера цепляемся к прокси,
+ * а целевой адрес отдаём в рукопожатии (без локального DNS-резолва).
+ */
+@Mixin(targets = "net.minecraft.network.ClientConnection")
+public abstract class MixinClientConnection {
 
-    @Inject(method = "send(Lnet/minecraft/network/packet/Packet;Lio/netty/channel/ChannelFutureListener;Z)V", at = @At("HEAD"), cancellable = true)
-    private void onSend(Packet<?> packet, ChannelFutureListener channelFutureListener, boolean flush, CallbackInfo ci) {
-        if (PacketUtil.checkAndRemoveSilent(packet)) {
-            return;
-        }
-        PacketEvent.Send event = new PacketEvent.Send(packet);
-        EventBus.INSTANCE.post(event);
-        if (event.isCancelled()) {
-            ci.cancel();
-        }
+    private static final String CONNECT_METHOD = "connect(Ljava/lang/String;ILnet/minecraft/network/state/NetworkState;"
+        + "Lnet/minecraft/network/state/NetworkState;"
+        + "Lnet/minecraft/network/listener/ClientPacketListener;"
+        + "Lnet/minecraft/network/packet/c2s/handshake/ConnectionIntent;)V";
+
+    /** Ванильный хендлер пайплайна, перехваченный перед подменой. */
+    @Unique
+    private static ChannelHandler collective$capturedHandler;
+
+    @Redirect(
+        method = CONNECT_METHOD,
+        at = @At(value = "INVOKE",
+            target = "Lio/netty/bootstrap/Bootstrap;handler(Lio/netty/channel/ChannelHandler;)Lio/netty/bootstrap/AbstractBootstrap;")
+    )
+    private AbstractBootstrap<?, ?> collective$captureHandler(Bootstrap bootstrap, ChannelHandler handler) {
+        collective$capturedHandler = handler;
+        return bootstrap.handler(handler);
     }
 
-    @Inject(method = "channelRead0(Lio/netty/channel/ChannelHandlerContext;Lnet/minecraft/network/packet/Packet;)V", at = @At("HEAD"), cancellable = true)
-    private void onReceive(ChannelHandlerContext channelHandlerContext, Packet<?> packet, CallbackInfo ci) {
-        PacketEvent.Receive event = new PacketEvent.Receive(packet);
-        EventBus.INSTANCE.post(event);
-        if (event.isCancelled()) {
-            ci.cancel();
+    @Redirect(
+        method = CONNECT_METHOD,
+        at = @At(value = "INVOKE",
+            target = "Lio/netty/bootstrap/Bootstrap;connect(Ljava/net/InetAddress;I)Lio/netty/channel/ChannelFuture;")
+    )
+    private ChannelFuture collective$proxyConnect(Bootstrap bootstrap, InetAddress address, int port) {
+        ProxyEntry proxy = ProxyManager.INSTANCE.getActive();
+        if (proxy == null) {
+            return bootstrap.connect(address, port);
         }
+
+        ChannelHandler original = collective$capturedHandler;
+        collective$capturedHandler = null;
+        if (original == null) {
+            return bootstrap.connect(address, port);
+        }
+        InetSocketAddress proxyAddr = new InetSocketAddress(proxy.host(), proxy.port());
+        bootstrap.handler(new ChannelInitializer<Channel>() {
+            @Override
+            protected void initChannel(Channel ch) {
+                // Хендлер сам цепляется к прокси и пробрасывает цель из connect()
+                if (proxy.type() == ProxyEntry.ProxyType.SOCKS5) {
+                    if (proxy.hasAuth()) {
+                        ch.pipeline().addLast(new Socks5ProxyHandler(proxyAddr, proxy.user(), proxy.pass()));
+                    } else {
+                        ch.pipeline().addLast(new Socks5ProxyHandler(proxyAddr));
+                    }
+                } else {
+                    if (proxy.hasAuth()) {
+                        ch.pipeline().addLast(new HttpProxyHandler(proxyAddr, proxy.user(), proxy.pass()));
+                    } else {
+                        ch.pipeline().addLast(new HttpProxyHandler(proxyAddr));
+                    }
+                }
+                ch.pipeline().addLast(original);
+            }
+        });
+        // Цель остаётся серверной — хендлер завернёт TCP на прокси сам
+        return bootstrap.connect(address, port);
     }
 }

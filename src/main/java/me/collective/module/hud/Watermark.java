@@ -21,7 +21,7 @@ public class Watermark extends HudModule {
     public void render(DrawContext context, float delta) {
         if (!isToggled()) return;
 
-        String title = text.getValue() + (version.getValue() ? " §fv1.0.0" : "");
+        String title = text.getValue() + (version.getValue() ? " §fv1.1" : "");
         this.width = FontManager.INSTANCE.getStringWidth(title) + 6;
         this.height = FontManager.INSTANCE.getFontHeight() + 4;
 

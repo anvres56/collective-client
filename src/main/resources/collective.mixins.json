@@ -25,7 +25,22 @@
     "MixinClientPlayerInteractionManager",
     "MixinGameRenderer",
     "MixinHeldItemRenderer",
-    "MixinInGameOverlayRenderer"
+    "MixinInGameOverlayRenderer",
+    "MixinHandledScreenTooltips",
+    "MixinDrawContextDominant",
+    "MixinEntityHitbox",
+    "MixinPlayerReach",
+    "MixinMultiTask",
+    "MixinChatHud",
+    "MixinChatHudInteractable",
+    "MixinTextFieldWidget",
+    "MixinEmoteModel",
+    "MixinEmoteState",
+    "MixinEmoteBody",
+    "MixinMinecraftClient",
+    "MixinTitleScreen",
+    "MixinMultiplayerScreen",
+    "MixinClientConnection"
   ],
   "injectors": {
     "defaultRequire": 1

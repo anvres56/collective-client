@@ -12,7 +12,7 @@ import net.minecraft.client.MinecraftClient;
 public class CollectiveClient implements ClientModInitializer {
     public static final String MOD_ID = "collective";
     public static final String MOD_NAME = "Collective Client";
-    public static final String MOD_VERSION = "1.0.0";
+    public static final String MOD_VERSION = "1.1";
 
     @Override
     public void onInitializeClient() {
@@ -61,6 +61,10 @@ public class CollectiveClient implements ClientModInitializer {
                 me.collective.event.EventBus.INSTANCE.post(new me.collective.event.events.TickEvent.Post());
                 ModuleManager.INSTANCE.onUpdate();
             }
+            try {
+                me.collective.config.ConfigManager.getInstance().tick();
+            } catch (Throwable ignored) {
+            }
         });
 
         // Register World 3D Render Callback for Modules
@@ -87,6 +91,15 @@ public class CollectiveClient implements ClientModInitializer {
         } catch (Throwable t) {
             System.err.println("[Collective] Error initializing Addons/Scripts: " + t.getMessage());
             t.printStackTrace();
+        }
+
+        // Load saved config (modules, settings, HUD, friends, prefix)
+        try {
+            if (me.collective.config.ConfigManager.getInstance().loadDefault()) {
+                System.out.println("[Collective] Config loaded: default.json");
+            }
+        } catch (Throwable t) {
+            System.err.println("[Collective] Error loading config: " + t.getMessage());
         }
 
         System.out.println("[" + MOD_NAME + "] Initialized successfully!");

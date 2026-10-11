@@ -29,6 +29,8 @@ public class Notifications extends Module {
     public void notifyModule(Module module, boolean enabled) {
         if (!isToggled() || !modules.getValue()) return;
         if (module == this) return;
+        // Не спамим про открытие/закрытие интерфейса
+        if (module instanceof UI) return;
 
         String state = enabled ? "§aenabled" : "§cdisabled";
         String msg = "§f" + module.getName() + " §7has been " + state + "§7.";

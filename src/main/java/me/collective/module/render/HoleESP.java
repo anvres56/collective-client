@@ -39,6 +39,7 @@ public class HoleESP extends Module {
     public final ColorSetting bedrockColor = add(new ColorSetting("Бедрок", new Color(0, 255, 120, 100)));
     public final ColorSetting indestructibleColor = add(new ColorSetting("Обсидиан", new Color(140, 0, 255, 100)));
     public final BooleanSetting doubleHoles = add(new BooleanSetting("Двойные дыры", true));
+    public final BooleanSetting xray = add(new BooleanSetting("Просвет", true));
 
     private final List<Hole> holes = new CopyOnWriteArrayList<>();
     private long lastScanTime = 0L;
@@ -148,7 +149,7 @@ public class HoleESP extends Module {
         for (Hole hole : holes) {
             Color fill = hole.color;
             Color line = new Color(hole.color.getRed(), hole.color.getGreen(), hole.color.getBlue(), 255);
-            Renderer3D.box(hole.box, fill, line);
+            Renderer3D.box(hole.box, fill, line, sm, xray.getValue());
         }
     }
 

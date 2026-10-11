@@ -1,0 +1,306 @@
+package me.collective.emotes;
+
+import me.collective.module.misc.EmotesModule;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.render.entity.model.BipedEntityModel;
+import net.minecraft.client.render.entity.model.PlayerEntityModel;
+import net.minecraft.client.model.ModelPart;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.RotationAxis;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.WeakHashMap;
+
+/**
+ * Движок эмоутов: проигрывание, тайминг, наложение поз на модель,
+ * сдвиг тела. Анимирует ТОЛЬКО локального игрока.
+ */
+public final class EmoteEngine {
+    private static final MinecraftClient mc = MinecraftClient.getInstance();
+    private static final float DEG = (float) Math.PI / 180.0F;
+
+    /** Render-state -> UUID игрока (заполняется из updateRenderState). */
+    private static final Map<Object, UUID> STATE_UUID =
+        Collections.synchronizedMap(new WeakHashMap<>());
+
+    /** Счётчик вариантов анимаций на эмоут (как в оригинале). */
+    private static final Map<String, Integer> VARIANT = new HashMap<>();
+
+    private record ActiveEmote(Emote emote, EmoteData data, String anim, EmoteTiming timing) {
+    }
+
+    private static ActiveEmote active = null;
+    private static long lastPlayMs = 0L;
+    private static boolean originsLogged = false;
+    /** Был активен на прошлом кадре — нужен разовый сброс поворотов при стопе. */
+    private static boolean wasActive = false;
+
+    private EmoteEngine() {
+    }
+
+    private static boolean debug() {
+        try {
+            EmotesModule mod = EmotesModule.INSTANCE;
+            return mod == null || mod.debugLog.getValue();
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    private static void log(String msg) {
+        if (debug()) System.out.println("[Emotes] " + msg);
+    }
+
+    public static void mapState(Object state, UUID uuid) {
+        if (state != null && uuid != null) STATE_UUID.put(state, uuid);
+    }
+
+    private static boolean isLocal(Object state) {
+        if (mc.player == null) return false;
+        UUID uuid = STATE_UUID.get(state);
+        return uuid != null && uuid.equals(mc.player.getUuid());
+    }
+
+    public static void play(Emote emote) {
+        if (emote == null || emote.animations().isEmpty()) return;
+        int n = VARIANT.getOrDefault(emote.id(), 0);
+        String anim = emote.animations().get(n % emote.animations().size());
+        VARIANT.put(emote.id(), (n + 1) % emote.animations().size());
+        EmoteData data;
+        try {
+            data = EmoteData.load(emote, anim);
+        } catch (Exception e) {
+            log("play FAILED exception for " + emote.id() + "/" + anim + ": " + e);
+            return;
+        }
+        if (data == null) {
+            log("play FAILED: no data for " + emote.id() + "/" + anim);
+            return;
+        }
+        active = new ActiveEmote(emote, data, anim, new EmoteTiming(System.nanoTime()));
+        lastPlayMs = System.currentTimeMillis();
+        if (debug()) {
+            String[] bones = {"head", "body", "right_arm", "left_arm", "right_leg", "left_leg", "torso"};
+            StringBuilder audit = new StringBuilder();
+            for (String b : bones) {
+                EmoteData.BoneSample s = data.sample(b, 0f);
+                audit.append(b).append(s.hasRotation() ? "[R]" : "[ ]")
+                    .append(s.hasPosition() ? "[P]" : "[ ]").append(' ');
+            }
+            log("play id=" + emote.id() + " anim=" + anim + " dur=" + data.duration()
+                + " loop=" + emote.loop() + " tracks: " + audit);
+        }
+    }
+
+    public static void playSelected() {
+        if (mc.currentScreen instanceof EmoteWheelScreen wheel) {
+            Emote selected = wheel.getSelectedEmote();
+            if (selected != null) {
+                mc.setScreen(null);
+                play(selected);
+            }
+        }
+    }
+
+    public static void stop() {
+        if (active != null) log("stop id=" + active.emote.id());
+        active = null;
+    }
+
+    public static boolean isActive() {
+        return active != null;
+    }
+
+    /** Мс с последнего запуска (антидребезг колеса). */
+    public static long millisSincePlay() {
+        return System.currentTimeMillis() - lastPlayMs;
+    }
+
+    /** Тик движка: автостоп при движении и в конце не-лупа. */
+    public static void tick() {
+        ActiveEmote a = active;
+        if (a == null || mc.player == null) return;
+        EmotesModule mod = EmotesModule.INSTANCE;
+        boolean keep = mod != null && mod.keepWhileMoving();
+        if (!keep && isMoving()) {
+            log("autostop: movement");
+            stop();
+            return;
+        }
+        long now = System.nanoTime();
+        float t = a.timing.animTime(now);
+        if (!a.emote.loop() && t >= a.data.duration()) {
+            log("autostop: end t=" + t + " dur=" + a.data.duration());
+            stop();
+        }
+    }
+
+    private static boolean isMoving() {
+        if (mc.player == null || mc.options == null) return false;
+        return mc.options.forwardKey.isPressed()
+            || mc.options.backKey.isPressed()
+            || mc.options.leftKey.isPressed()
+            || mc.options.rightKey.isPressed()
+            || mc.options.jumpKey.isPressed()
+            || mc.options.sneakKey.isPressed()
+            || mc.player.isGliding()
+            || mc.player.isSwimming();
+    }
+
+    /**
+     * Наложение позы на модель. Вызывается из setAngles TAIL для ВСЕХ
+     * двуногих — чужим только сбрасываем пивоты, себе накладываем эмоут.
+     */
+    public static void applyToModel(BipedEntityModel model, Object state) {
+        ModelPart head = model.head;
+        ModelPart body = model.body;
+        ModelPart rightArm = model.rightArm;
+        ModelPart leftArm = model.leftArm;
+        ModelPart rightLeg = model.rightLeg;
+        ModelPart leftLeg = model.leftLeg;
+
+        ModelPart jacket = null;
+        ModelPart rightSleeve = null;
+        ModelPart leftSleeve = null;
+        ModelPart rightPants = null;
+        ModelPart leftPants = null;
+        if (model instanceof PlayerEntityModel pm) {
+            jacket = pm.jacket;
+            rightSleeve = pm.rightSleeve;
+            leftSleeve = pm.leftSleeve;
+            rightPants = pm.rightPants;
+            leftPants = pm.leftPants;
+        }
+
+        ModelPart[] parts = {head, body, rightArm, leftArm, rightLeg, leftLeg,
+            jacket, rightSleeve, leftSleeve, rightPants, leftPants, model.hat};
+        for (ModelPart p : parts) {
+            if (p == null) continue;
+            PivotStore.snapshot(p);
+            PivotStore.restore(p);
+        }
+        if (!originsLogged && debug()) {
+            originsLogged = true;
+            String[] names = {"head", "body", "rightArm", "leftArm", "rightLeg", "leftLeg",
+                "jacket", "rSleeve", "lSleeve", "rPants", "lPants", "hat"};
+            StringBuilder sb = new StringBuilder("origins:");
+            for (int i = 0; i < parts.length; i++) {
+                if (parts[i] == null) continue;
+                sb.append(' ').append(names[i]).append("=(")
+                    .append(parts[i].originX).append(',')
+                    .append(parts[i].originY).append(',')
+                    .append(parts[i].originZ).append(')');
+            }
+            log(sb.toString());
+        }
+
+        ActiveEmote a = active;
+        boolean local = isLocal(state);
+        if (a == null || !local) {
+            // Переход "играло -> стоп": разово сбросить замороженные повороты
+            if (a == null && local && wasActive) {
+                wasActive = false;
+                for (ModelPart p : parts) {
+                    if (p != null) PivotStore.restoreAll(p);
+                }
+            }
+            return;
+        }
+        wasActive = true;
+
+        long now = System.nanoTime();
+        float t = a.data.mapTime(a.timing.animTime(now), a.emote.loop());
+        float blend = a.timing.blend(now);
+
+        // Тело: чего нет в "body" — добираем из "torso" (там живут
+        // перевороты типа сальто, в оригинале они шли в bend геометрии,
+        // у нас bend'а нет — крутим кость целиком)
+        EmoteData.BoneSample bodyS = a.data.sample("body", t);
+        EmoteData.BoneSample torsoS = a.data.sample("torso", t);
+        boolean useTorsoRot = !bodyS.hasRotation() && torsoS.hasRotation();
+        boolean useTorsoPos = !bodyS.hasPosition() && torsoS.hasPosition();
+        EmoteData.BoneSample bodyMerged = new EmoteData.BoneSample(
+            useTorsoRot ? torsoS.rotation() : bodyS.rotation(),
+            useTorsoPos ? torsoS.position() : bodyS.position(),
+            0f, 0f,
+            bodyS.hasRotation() || torsoS.hasRotation(),
+            bodyS.hasPosition() || torsoS.hasPosition(),
+            false);
+
+        applyPart(head, a.data.sample("head", t), blend, HEAD_BASE);
+        applyPart(body, bodyMerged, blend, BODY_BASE);
+        applyPart(rightArm, a.data.sample("right_arm", t), blend, ARM_R_BASE);
+        applyPart(leftArm, a.data.sample("left_arm", t), blend, ARM_L_BASE);
+        applyPart(rightLeg, a.data.sample("right_leg", t), blend, LEG_R_BASE);
+        applyPart(leftLeg, a.data.sample("left_leg", t), blend, LEG_L_BASE);
+        applyPart(jacket, bodyMerged, blend, BODY_BASE);
+        applyPart(rightSleeve, a.data.sample("right_arm", t), blend, ARM_R_BASE);
+        applyPart(leftSleeve, a.data.sample("left_arm", t), blend, ARM_L_BASE);
+        applyPart(rightPants, a.data.sample("right_leg", t), blend, LEG_R_BASE);
+        applyPart(leftPants, a.data.sample("left_leg", t), blend, LEG_L_BASE);
+
+        // Шапка следует за головой
+        model.hat.pitch = head.pitch;
+        model.hat.yaw = head.yaw;
+        model.hat.roll = head.roll;
+    }
+
+    // Запасные базы на случай отсутствия снапшота (обычно снапшот есть всегда)
+    private static final float[] HEAD_BASE = {0f, 0f, 0f};
+    private static final float[] BODY_BASE = {0f, 0f, 0f};
+    private static final float[] ARM_R_BASE = {-5f, 2f, 0f};
+    private static final float[] ARM_L_BASE = {5f, 2f, 0f};
+    private static final float[] LEG_R_BASE = {-1.9f, 12f, 0f};
+    private static final float[] LEG_L_BASE = {1.9f, 12f, 0f};
+
+    private static void applyPart(ModelPart part, EmoteData.BoneSample s, float blend, float[] fallbackBase) {
+        if (part == null) return;
+        // База — живой снапшот ваниллы, а не хардкод (стороны/пивоты берём как есть)
+        float[] snap = PivotStore.get(part);
+        float bx = snap != null ? snap[3] : fallbackBase[0];
+        float by = snap != null ? snap[4] : fallbackBase[1];
+        float bz = snap != null ? snap[5] : fallbackBase[2];
+        if (s.hasRotation() && valid(s.rotation().x) && valid(s.rotation().y) && valid(s.rotation().z)) {
+            part.pitch = MathHelper.lerp(blend, part.pitch, s.rotation().x * DEG);
+            part.yaw = MathHelper.lerp(blend, part.yaw, s.rotation().y * DEG);
+            part.roll = MathHelper.lerp(blend, part.roll, s.rotation().z * DEG);
+        }
+        if (s.hasPosition() && valid(s.position().x) && valid(s.position().y) && valid(s.position().z)) {
+            part.originX = MathHelper.lerp(blend, part.originX, bx + s.position().x);
+            part.originY = MathHelper.lerp(blend, part.originY, by - s.position().y);
+            part.originZ = MathHelper.lerp(blend, part.originZ, bz + s.position().z);
+        }
+    }
+
+    private static boolean valid(float v) {
+        return !Float.isNaN(v) && !Float.isInfinite(v);
+    }
+
+    /** Сдвиг/поворот всего тела (после ванильных трансформов). */
+    public static void applyBodyTransform(Object state, MatrixStack matrices) {
+        ActiveEmote a = active;
+        if (a == null || !isLocal(state)) return;
+
+        long now = System.nanoTime();
+        float t = a.data.mapTime(a.timing.animTime(now), a.emote.loop());
+        float blend = a.timing.blend(now);
+        EmoteData.BoneSample s = a.data.sample("body", t);
+
+        float dx = s.hasPosition() ? -s.position().x * blend / 16f : 0f;
+        float dy = s.hasPosition() ? s.position().y * blend / 16f : 0f;
+        float dz = s.hasPosition() ? s.position().z * blend / 16f : 0f;
+        float rx = s.hasRotation() ? -s.rotation().x * blend : 0f;
+        float ry = s.hasRotation() ? -s.rotation().y * blend : 0f;
+        float rz = s.hasRotation() ? s.rotation().z * blend : 0f;
+
+        matrices.translate(dx, dy + 0.7f, dz);
+        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(rz));
+        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(ry));
+        matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(rx));
+        matrices.translate(0f, -0.7f, 0f);
+    }
+}

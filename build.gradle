@@ -33,6 +33,34 @@ dependencies {
     implementation files("libs/nether-pathfinder-1.4.1.jar")
 
     include(implementation(annotationProcessor("io.github.llamalad7:mixinextras-fabric:0.4.1")))
+
+    // Kotlin scripting engine for .kts scripts (JSR-223)
+    // Без этого ScriptEngineManager не находит движок и падает с
+    // "No script engine found for extension: .kts"
+    // ВАЖНО: kotlin-main-kts НЕ добавляем — внутри него зашейден
+    // org.slf4j.impl.SimpleLogger (1.7.x), который перехватывает логгер
+    // Minecraft (LoggerPrintStream -> SimpleLogger -> LoggerPrintStream)
+    // и роняет клиент в StackOverflowError на старте.
+    // Для eval .kts хватает jsr223 + compiler-embeddable.
+    def kotlin_version = "2.1.20"
+    include(implementation("org.jetbrains.kotlin:kotlin-stdlib:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-script-runtime:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-scripting-common:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-scripting-jvm:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-scripting-jsr223:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-scripting-compiler-embeddable:${kotlin_version}"))
+    // Транзитивные зависимости движка — Loom НЕ пакует их автоматически,
+    // без них .kts упадёт с NoClassDefFoundError уже после нахождения движка.
+    include(implementation("org.jetbrains.kotlin:kotlin-scripting-jvm-host:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-scripting-compiler-impl-embeddable:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-daemon-embeddable:${kotlin_version}"))
+    include(implementation("org.jetbrains.kotlin:kotlin-reflect:${kotlin_version}"))
+    include(implementation("org.jetbrains.intellij.deps:trove4j:1.0.20200330"))
+    include(implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0"))
+    include(implementation("org.jetbrains:annotations:13.0"))
+    // SOCKS5/HTTP прокси для подключения (маленький, шейдим в мод)
+    include(implementation("io.netty:netty-handler-proxy:4.2.7.Final"))
 }
 
 java {

@@ -27,6 +27,7 @@ public class Fonts extends Module {
     public final BooleanSetting italic = add(new BooleanSetting("Italic", false));
     public final BooleanSetting antiAlias = add(new BooleanSetting("AntiAlias", true));
     public final BooleanSetting shadow = add(new BooleanSetting("Shadow", true));
+    public final BooleanSetting chat = add(new BooleanSetting("Чат", true));
 
     public Fonts() {
         super("Fonts", "Manages the client's custom font renderer.", Category.CLIENT);

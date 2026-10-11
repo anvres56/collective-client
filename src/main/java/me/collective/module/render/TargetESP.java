@@ -9,7 +9,10 @@ import me.collective.module.combat.KillAura;
 import me.collective.render.ColorUtil;
 import me.collective.render.RenderUtil;
 import me.collective.render.RenderUtil3D;
+import me.collective.setting.BooleanSetting;
+import me.collective.setting.ColorSetting;
 import me.collective.setting.ModeSetting;
+import me.collective.setting.NumberSetting;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderLayers;
 import net.minecraft.client.render.VertexConsumer;
@@ -24,6 +27,7 @@ import net.minecraft.util.math.RotationAxis;
 import net.minecraft.util.math.Vec3d;
 import org.joml.Vector2f;
 
+import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -33,11 +37,31 @@ public class TargetESP extends Module {
 
     // Single setting: only mode selection, no complicated clutter!
     public final ModeSetting mode = add(new ModeSetting("Вид", "Призраки",
-        "Призраки", "Маркер", "Кольцо", "Созвездие", "Bloom", "Мечи", "Молния", "Test"));
+        "Призраки", "Маркер", "Кольцо", "Созвездие", "Bloom", "Мечи", "Молния", "Test",
+        "ThunderHack", "ThunderHackV2", "NurikZapen", "CelkaPasta"));
+
+    // Параметры режима ThunderHackV2 (длина/плотность/тряска/амплитуда роя)
+    public final NumberSetting espLength = add(new NumberSetting("ESPLength", 14.0, 1.0, 40.0, 1.0));
+    public final NumberSetting espFactor = add(new NumberSetting("ESPFactor", 8.0, 1.0, 20.0, 1.0));
+    public final NumberSetting espShaking = add(new NumberSetting("ESPShaking", 1.8, 1.5, 10.0, 0.1));
+    public final NumberSetting espAmplitude = add(new NumberSetting("ESPAmplitude", 3.0, 0.1, 8.0, 0.1));
+
+    // Свои цвета вместо темы клиента
+    public final BooleanSetting customColors = add(new BooleanSetting("Свои цвета", false));
+    public final ColorSetting colorOne = add(new ColorSetting("Цвет 1", new Color(189, 153, 255, 255)));
+    public final ColorSetting colorTwo = add(new ColorSetting("Цвет 2", new Color(255, 85, 85, 255)));
+
+    // Состояние вращения метки NurikZapen (как CaptureMark в TH)
+    private float markValue = 1f;
+    private float markPrev = 1f;
+    private float markSpeed = 1f;
+    private boolean markFlip = false;
 
     private static final Identifier GHOST_TEXTURE = Identifier.of("collective", "textures/esp/ghost.png");
     private static final Identifier GLOW_TEXTURE = Identifier.of("collective", "textures/esp/glow.png");
     private static final Identifier STAR_TEXTURE = Identifier.of("collective", "textures/esp/star.png");
+    private static final Identifier FIREFLY_TEXTURE = Identifier.of("collective", "textures/esp/firefly.png");
+    private static final Identifier CAPTURE_TEXTURE = Identifier.of("collective", "textures/esp/capture.png");
     private static final Identifier SWORD_TEXTURE_ID = Identifier.of("collective", "textures/dynamic/sword");
 
     private static final int MAX_SWORDS = 8;
@@ -197,14 +221,28 @@ public class TargetESP extends Module {
             this.circleStep = this.circleStep + this.circleSpeed * 8.0E-4F * frame;
 
             String currentMode = this.mode.getValue();
-            switch (currentMode) {
-                case "Призраки" -> this.renderGhosts(event, this.displayedTarget, alpha, now, elapsedSeconds);
-                case "Маркер" -> this.renderMarker(event, this.displayedTarget, alpha, now);
-                case "Bloom" -> this.renderBloom(event, this.displayedTarget, alpha);
-                case "Мечи" -> this.renderSwords(event, this.displayedTarget, alpha);
-                case "Созвездие" -> this.renderConstellation(event, this.displayedTarget, alpha, now);
-                case "Test" -> this.renderTest(event, this.displayedTarget, alpha);
-                default -> {}
+            // Тик вращения метки NurikZapen
+            this.markPrev = this.markValue;
+            this.markValue += this.markSpeed;
+            if (this.markSpeed > 25) this.markFlip = true;
+            if (this.markSpeed < -25) this.markFlip = false;
+            this.markSpeed = this.markFlip ? this.markSpeed - 0.5F : this.markSpeed + 0.5F;
+            try {
+                switch (currentMode) {
+                    case "Призраки" -> this.renderGhosts(event, this.displayedTarget, alpha, now, elapsedSeconds);
+                    case "Маркер" -> this.renderMarker(event, this.displayedTarget, alpha, now);
+                    case "Bloom" -> this.renderBloom(event, this.displayedTarget, alpha);
+                    case "Мечи" -> this.renderSwords(event, this.displayedTarget, alpha);
+                    case "Созвездие" -> this.renderConstellation(event, this.displayedTarget, alpha, now);
+                    case "Test" -> this.renderTest(event, this.displayedTarget, alpha);
+                    case "ThunderHack" -> this.renderThunderHack(event, this.displayedTarget, alpha, now);
+                    case "ThunderHackV2" -> this.renderThunderHackV2(event, this.displayedTarget, alpha, now);
+                    case "NurikZapen" -> this.renderNurikZapen(event, this.displayedTarget, alpha);
+                    case "CelkaPasta" -> this.renderCelkaPasta(event, this.displayedTarget, alpha, now);
+                    default -> {}
+                }
+            } catch (Exception ignored) {
+                // Битый кадр буфера (Not building) — пропускаем, стек уже сбалансирован в finally
             }
         }
     }
@@ -483,19 +521,22 @@ public class TargetESP extends Module {
     private void drawGhostSprite(MatrixStack stack, VertexConsumer consumer, Vec3d position, Vec3d camera, float width, float height, float rotation, int color) {
         Vec3d relative = position.subtract(camera);
         stack.push();
-        stack.translate(relative.x, relative.y, relative.z);
-        if (mc.gameRenderer != null && mc.gameRenderer.getCamera() != null) {
-            stack.multiply(mc.gameRenderer.getCamera().getRotation());
-        }
-        stack.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(rotation));
-        stack.scale(width, height, 1.0F);
-        MatrixStack.Entry entry = stack.peek();
+        try {
+            stack.translate(relative.x, relative.y, relative.z);
+            if (mc.gameRenderer != null && mc.gameRenderer.getCamera() != null) {
+                stack.multiply(mc.gameRenderer.getCamera().getRotation());
+            }
+            stack.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(rotation));
+            stack.scale(width, height, 1.0F);
+            MatrixStack.Entry entry = stack.peek();
 
-        consumer.vertex(entry, -1.0F, -1.0F, 0.0F).color(color).texture(0.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, -1.0F, 1.0F, 0.0F).color(color).texture(0.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, 1.0F, 1.0F, 0.0F).color(color).texture(1.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, 1.0F, -1.0F, 0.0F).color(color).texture(1.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        stack.pop();
+            consumer.vertex(entry, -1.0F, -1.0F, 0.0F).color(color).texture(0.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, -1.0F, 1.0F, 0.0F).color(color).texture(0.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, 1.0F, 1.0F, 0.0F).color(color).texture(1.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, 1.0F, -1.0F, 0.0F).color(color).texture(1.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+        } finally {
+            stack.pop();
+        }
     }
 
     // --- MARKER RENDERING ---
@@ -514,19 +555,22 @@ public class TargetESP extends Module {
         int[] colors = this.colors(alpha * (0.85F + 0.15F * (float) Math.sin(time * 1.6F * Math.PI * 2.0)));
 
         stack.push();
-        stack.translate(pos.x, pos.y + target.getHeight() * 0.5, pos.z);
-        if (mc.gameRenderer != null && mc.gameRenderer.getCamera() != null) {
-            stack.multiply(mc.gameRenderer.getCamera().getRotation());
-        }
-        stack.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(angle));
-        stack.scale(size, size, 1.0F);
-        MatrixStack.Entry entry = stack.peek();
+        try {
+            stack.translate(pos.x, pos.y + target.getHeight() * 0.5, pos.z);
+            if (mc.gameRenderer != null && mc.gameRenderer.getCamera() != null) {
+                stack.multiply(mc.gameRenderer.getCamera().getRotation());
+            }
+            stack.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(angle));
+            stack.scale(size, size, 1.0F);
+            MatrixStack.Entry entry = stack.peek();
 
-        consumer.vertex(entry, -1.0F, -1.0F, 0.0F).color(colors[1]).texture(0.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, -1.0F, 1.0F, 0.0F).color(colors[0]).texture(0.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, 1.0F, 1.0F, 0.0F).color(colors[1]).texture(1.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, 1.0F, -1.0F, 0.0F).color(colors[0]).texture(1.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        stack.pop();
+            consumer.vertex(entry, -1.0F, -1.0F, 0.0F).color(colors[1]).texture(0.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, -1.0F, 1.0F, 0.0F).color(colors[0]).texture(0.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, 1.0F, 1.0F, 0.0F).color(colors[1]).texture(1.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, 1.0F, -1.0F, 0.0F).color(colors[0]).texture(1.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+        } finally {
+            stack.pop();
+        }
     }
 
     // --- RING 2D OVERLAY RENDERING ---
@@ -811,20 +855,121 @@ public class TargetESP extends Module {
     private void drawSwordSprite(MatrixStack stack, VertexConsumer consumer, Vec3d position, Vec3d camera, float halfW, float halfH, float roll, float pitch, int color) {
         Vec3d relative = position.subtract(camera);
         stack.push();
-        stack.translate(relative.x, relative.y, relative.z);
-        if (mc.gameRenderer != null && mc.gameRenderer.getCamera() != null) {
-            stack.multiply(mc.gameRenderer.getCamera().getRotation());
-        }
-        stack.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(roll));
-        stack.multiply(RotationAxis.POSITIVE_X.rotationDegrees(pitch));
-        stack.scale(halfW, halfH, 1.0F);
-        MatrixStack.Entry entry = stack.peek();
+        try {
+            stack.translate(relative.x, relative.y, relative.z);
+            if (mc.gameRenderer != null && mc.gameRenderer.getCamera() != null) {
+                stack.multiply(mc.gameRenderer.getCamera().getRotation());
+            }
+            stack.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(roll));
+            stack.multiply(RotationAxis.POSITIVE_X.rotationDegrees(pitch));
+            stack.scale(halfW, halfH, 1.0F);
+            MatrixStack.Entry entry = stack.peek();
 
-        consumer.vertex(entry, -1.0F, -1.0F, 0.0F).color(color).texture(0.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, -1.0F, 1.0F, 0.0F).color(color).texture(0.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, 1.0F, 1.0F, 0.0F).color(color).texture(1.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        consumer.vertex(entry, 1.0F, -1.0F, 0.0F).color(color).texture(1.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
-        stack.pop();
+            consumer.vertex(entry, -1.0F, -1.0F, 0.0F).color(color).texture(0.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, -1.0F, 1.0F, 0.0F).color(color).texture(0.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, 1.0F, 1.0F, 0.0F).color(color).texture(1.0F, 0.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+            consumer.vertex(entry, 1.0F, -1.0F, 0.0F).color(color).texture(1.0F, 1.0F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0f, 1.0f, 0.0f);
+        } finally {
+            stack.pop();
+        }
+    }
+
+    // --- THUNDERHACK MODES (порт ESP из Aura ThunderHack) ---
+
+    /** ThunderHack: три спиральные градиентные ленты вокруг цели. */
+    private void renderThunderHack(Render3DEvent event, LivingEntity target, float alpha, long now) {
+        if (event.consumers == null || event.matrices == null) return;
+        VertexConsumer consumer = event.consumers.getBuffer(RenderLayers.entityTranslucentEmissive(GLOW_TEXTURE));
+        MatrixStack.Entry entry = event.matrices.peek();
+
+        Vec3d base = this.lerped(target, event.tickDelta);
+        double height = target.getHeight();
+        float time = (float) (now - this.epoch) / 5.0F;
+
+        for (int strip = 0; strip < 3; strip++) {
+            int phase = strip * 120;
+            for (int j = 0; j < 360; j++) {
+                double a1 = Math.toRadians(j + phase);
+                double a2 = Math.toRadians(j + 1 + phase);
+                double h1 = height - j * 0.004;
+                double h2 = height - (j + 1) * 0.004;
+                float fade = MathHelper.clamp(1.0F - (((float) j + time) % 360.0F) / 60.0F, 0.0F, 1.0F);
+                int col = ColorUtil.multiplyAlpha(thBase(j / 20), fade * alpha);
+                float x1 = (float) (base.x + Math.cos(a1) * 0.5);
+                float z1 = (float) (base.z + Math.sin(a1) * 0.5);
+                float x2 = (float) (base.x + Math.cos(a2) * 0.5);
+                float z2 = (float) (base.z + Math.sin(a2) * 0.5);
+                float y1 = (float) (base.y + h1);
+                float y2 = (float) (base.y + h2 + 0.1);
+                consumer.vertex(entry, x1, y1, z1).color(col).texture(0.5F, 0.5F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0F, 1.0F, 0.0F);
+                consumer.vertex(entry, x2, y2, z2).color(col).texture(0.5F, 0.5F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0F, 1.0F, 0.0F);
+            }
+        }
+    }
+
+    /** ThunderHackV2: рой светлячков по орбитам с параметрами длины/тряски. */
+    private void renderThunderHackV2(Render3DEvent event, LivingEntity target, float alpha, long now) {
+        if (event.consumers == null || event.matrices == null) return;
+        VertexConsumer consumer = event.consumers.getBuffer(RenderLayers.entityTranslucentEmissive(FIREFLY_TEXTURE));
+        Vec3d camera = event.camera != null ? event.camera.getCameraPos() : Vec3d.ZERO;
+        Vec3d base = this.lerped(target, event.tickDelta);
+
+        int length = Math.max(1, this.espLength.getIntValue());
+        float factor = Math.max(1.0F, this.espFactor.getFloatValue());
+        float shaking = Math.max(1.0F, this.espShaking.getFloatValue());
+        float amplitude = this.espAmplitude.getFloatValue();
+        float age = target.age + event.tickDelta;
+        float w = target.getWidth();
+
+        for (int j = 0; j < 3; j++) {
+            for (int i = 0; i <= length; i++) {
+                double radians = Math.toRadians((((float) i / 1.5F + age) * factor + (j * 120)) % (factor * 360));
+                double sinQuad = Math.sin(Math.toRadians(age * 2.5F + i * (j + 1)) * amplitude) / shaking;
+                float offset = (float) i / length;
+                Vec3d pos = new Vec3d(
+                    base.x + Math.cos(radians) * w,
+                    base.y + 1 + sinQuad,
+                    base.z + Math.sin(radians) * w);
+                float scale = Math.max(0.24F * offset, 0.2F);
+                int col = ColorUtil.multiplyAlpha(thBase((int) (180 * offset)), offset * alpha);
+                this.drawGhostSprite(event.matrices, consumer, pos, camera, scale, scale, 0.0F, col);
+            }
+        }
+    }
+
+    /** NurikZapen (CaptureMark): вращающаяся метка-захват на цели. */
+    private void renderNurikZapen(Render3DEvent event, LivingEntity target, float alpha) {
+        if (event.consumers == null || event.matrices == null) return;
+        VertexConsumer consumer = event.consumers.getBuffer(RenderLayers.entityTranslucentEmissive(CAPTURE_TEXTURE));
+        Vec3d camera = event.camera != null ? event.camera.getCameraPos() : Vec3d.ZERO;
+        Vec3d base = this.lerped(target, event.tickDelta);
+
+        float roll = this.markPrev + (this.markValue - this.markPrev) * event.tickDelta;
+        Vec3d pos = new Vec3d(base.x, base.y + target.getHeight() * 0.5, base.z);
+        int col = ColorUtil.multiplyAlpha(thBase((int) roll), alpha);
+        this.drawGhostSprite(event.matrices, consumer, pos, camera, 1.5F, 1.5F, roll, col);
+    }
+
+    /** CelkaPasta: старое градиентное кольцо, качающееся по высоте. */
+    private void renderCelkaPasta(Render3DEvent event, LivingEntity target, float alpha, long now) {
+        if (event.consumers == null || event.matrices == null) return;
+        VertexConsumer consumer = event.consumers.getBuffer(RenderLayers.entityTranslucentEmissive(GLOW_TEXTURE));
+        MatrixStack.Entry entry = event.matrices.peek();
+
+        float t = (float) (now - this.epoch) / 1000.0F;
+        float bob = Math.abs(1.0F + (float) Math.sin(t * 2.0)) / 2.0F;
+        Vec3d base = this.lerped(target, event.tickDelta);
+        double y = base.y + bob * target.getHeight();
+        float r = target.getWidth() * 0.8F;
+
+        for (int i = 0; i <= 30; i++) {
+            double a1 = i * Math.PI * 2 / 30;
+            double a2 = (i + 1) * Math.PI * 2 / 30;
+            int top = ColorUtil.multiplyAlpha(thBase(i), 0.0F);
+            int bottom = ColorUtil.multiplyAlpha(thBase(i), alpha * 0.67F);
+            consumer.vertex(entry, (float) (base.x + Math.cos(a1) * r), (float) y, (float) (base.z + Math.sin(a1) * r)).color(top).texture(0.5F, 0.5F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0F, 1.0F, 0.0F);
+            consumer.vertex(entry, (float) (base.x + Math.cos(a2) * r), (float) (base.y), (float) (base.z + Math.sin(a2) * r)).color(bottom).texture(0.5F, 0.5F).overlay(0, 0).light(0xF000F0).normal(entry, 0.0F, 1.0F, 0.0F);
+        }
     }
 
     // --- CONSTELLATION RENDERING ---
@@ -1043,8 +1188,15 @@ public class TargetESP extends Module {
     }
 
     private int[] colors(float alpha) {
-        int first = Colors.INSTANCE != null ? Colors.INSTANCE.getThemeColor().getRGB() : 0xFFBD99FF;
-        int second = Colors.INSTANCE != null ? Colors.INSTANCE.getEnemyColor().getRGB() : 0xFFFF5555;
+        int first;
+        int second;
+        if (customColors.getValue()) {
+            first = colorOne.getValue().getRGB();
+            second = colorTwo.getValue().getRGB();
+        } else {
+            first = Colors.INSTANCE != null ? Colors.INSTANCE.getThemeColor().getRGB() : 0xFFBD99FF;
+            second = Colors.INSTANCE != null ? Colors.INSTANCE.getEnemyColor().getRGB() : 0xFFFF5555;
+        }
         if (this.hurtProgress > 0.0F) {
             first = ColorUtil.interpolate(first, 0xFFFF3333, this.hurtProgress);
             second = ColorUtil.interpolate(second, 0xFFFF3333, this.hurtProgress);
@@ -1052,6 +1204,17 @@ public class TargetESP extends Module {
 
         int a = MathHelper.clamp((int) (255.0F * alpha), 0, 255);
         return new int[]{ColorUtil.withAlpha(first, a), ColorUtil.withAlpha(second, a)};
+    }
+
+    /** Базовый цвет для TH-режимов: радуга или градиент своих цветов. */
+    private int thBase(int step) {
+        if (customColors.getValue()) {
+            float f = (Math.abs(step) % 40) / 40.0F;
+            Color a = colorOne.getValue();
+            Color b = colorTwo.getValue();
+            return ColorUtil.interpolate(a.getRGB(), b.getRGB(), f);
+        }
+        return ColorUtil.rainbow(step, 0.9F, 1.0F).getRGB();
     }
 
     private Vec3d lerped(LivingEntity entity, float delta) {
